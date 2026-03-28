@@ -1,0 +1,93 @@
+@import 'tailwindcss';
+
+:root {
+	color-scheme: light;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	min-height: 100vh;
+	background: #f1f5f9;
+	color: #1e293b;
+	font-family: 'Segoe UI Variable Text', 'Aptos', 'Trebuchet MS', sans-serif;
+	overflow-x: hidden;
+}
+
+#root {
+	min-height: 100vh;
+}
+
+.app-main {
+	padding-top: 7.5rem;
+}
+
+@media (max-width: 900px) {
+	.app-main {
+		padding-top: 10.5rem;
+	}
+}
+
+@media (max-width: 560px) {
+	.app-main {
+		padding-top: 12.2rem;
+	}
+}
+
+@media (max-width: 420px) {
+	.app-main {
+		padding-top: 14.5rem;
+	}
+}
+
+.glass-card {
+	border: 1px solid rgba(148, 163, 184, 0.22);
+	background: linear-gradient(
+		145deg,
+		rgba(255, 255, 255, 0.9),
+		rgba(248, 250, 252, 0.84)
+	);
+	box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+	backdrop-filter: blur(8px);
+}
+
+.glow-orb {
+	pointer-events: none;
+	position: absolute;
+	border-radius: 999px;
+	filter: blur(50px);
+	z-index: 0;
+}
+
+.glow-orb-left {
+	top: 3.5rem;
+	left: -7rem;
+	height: 16rem;
+	width: 16rem;
+	background: rgba(56, 189, 248, 0.12);
+}
+
+.glow-orb-right {
+	top: 12rem;
+	right: -7rem;
+	height: 20rem;
+	width: 20rem;
+	background: rgba(59, 130, 246, 0.1);
+}
+
+@keyframes float {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-8px);
+	}
+}
+
+.float-slow {
+	animation: float 8s ease-in-out infinite;
+}
