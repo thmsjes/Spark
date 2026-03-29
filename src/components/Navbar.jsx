@@ -3,6 +3,8 @@ import './Navbar.css';
 export default function Navbar({
   onLoginClick,
   onContactClick,
+  onLogout,
+  isAuthenticated = false,
   isLoginActive = false,
   isContactActive = false,
 }) {
@@ -21,19 +23,35 @@ export default function Navbar({
         </div>
 
         <div className="navbar-actions" role="group" aria-label="Primary actions">
-          <button
-            type="button"
-            className={`navbar-action-btn ${isLoginActive ? 'navbar-action-btn-active' : ''}`}
-            onClick={onLoginClick}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="navbar-action-icon">
-              <path
-                d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.6 0-7 1.8-7 4v1h14v-1c0-2.2-3.4-4-7-4Z"
-                fill="currentColor"
-              />
-            </svg>
-            <span>Login</span>
-          </button>
+          {isAuthenticated ? (
+            <button
+              type="button"
+              className="navbar-action-btn navbar-action-btn-accent"
+              onClick={onLogout}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="navbar-action-icon">
+                <path
+                  d="M16 12a1 1 0 0 1-1 1H9v-2h6a1 1 0 0 1 1 1Zm2.7-.8-1.4-1.4a1 1 0 0 0-1.4 1.4L15.6 12l.7.8a1 1 0 0 0 1.4-1.4ZM5 5h8v2H7v10h6v2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span>Logout</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`navbar-action-btn ${isLoginActive ? 'navbar-action-btn-active' : ''}`}
+              onClick={onLoginClick}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="navbar-action-icon">
+                <path
+                  d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.6 0-7 1.8-7 4v1h14v-1c0-2.2-3.4-4-7-4Z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span>Login</span>
+            </button>
+          )}
 
           <button
             type="button"

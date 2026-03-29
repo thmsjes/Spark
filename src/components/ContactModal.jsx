@@ -1,6 +1,33 @@
+import { useState } from 'react';
 import './ContactModal.css';
+import { submitContactForm } from '@/apiCalls';
 
 export default function ContactModal({ onClose }) {
+  const [email, setEmail] = useState('');
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [status, setStatus] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    setIsSubmitting(true);
+    setStatus(null);
+
+    try {
+      await submitContactForm({ email, subject, message });
+      setStatus({ type: 'success', message: 'Message sent successfully. We will reply shortly.' });
+      setEmail('');
+      setSubject('');
+      setMessage('');
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message || 'Unable to send message. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="contact-modal-overlay" role="presentation" onClick={onClose}>
       <section
@@ -25,7 +52,7 @@ export default function ContactModal({ onClose }) {
           <a href="mailto:test@test.com" className="contact-modal-email"> test@test.com</a>
         </p>
 
-        <form className="contact-modal-form" onSubmit={(event) => event.preventDefault()}>
+        <form className="contact-modal-form" onSubmit={handleSubmit}>
           <div className="contact-modal-fields">
             <label className="contact-modal-label" htmlFor="contact-email">
               Email
@@ -37,6 +64,9 @@ export default function ContactModal({ onClose }) {
               type="email"
               placeholder="your@email.com"
               autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
             />
 
             <label className="contact-modal-label" htmlFor="contact-subject">
@@ -48,6 +78,9 @@ export default function ContactModal({ onClose }) {
               name="subject"
               type="text"
               placeholder="How can we help?"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              required
             />
 
             <label className="contact-modal-label" htmlFor="contact-message">
@@ -59,12 +92,19 @@ export default function ContactModal({ onClose }) {
               name="message"
               rows="5"
               placeholder="Write your message here"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              required
             />
           </div>
 
+          {status && (
+            <div className={`contact-modal-status ${status.type}`}>{status.message}</div>
+          )}
+
           <div className="contact-modal-footer">
-            <button type="submit" className="contact-modal-submit">
-              Send Message
+            <button type="submit" className="contact-modal-submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Sending...' : 'Send Message'}
             </button>
           </div>
         </form>
