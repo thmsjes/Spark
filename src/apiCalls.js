@@ -2,9 +2,23 @@ const baseHeaders = {
   'Content-Type': 'application/json',
 };
 
-const apiBaseUrl = import.meta.env.DEV
-  ? '/api'
-  : import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '';
+const configuredApiBaseUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '/api';
+const apiBaseUrl = configuredApiBaseUrl;
+
+function getAuthHeaders({ requireToken = false } = {}) {
+  const token = window.localStorage.getItem('spark-token');
+  if (!token) {
+    if (requireToken) {
+      throw new Error('Authentication token is missing. Please log in again.');
+    }
+    return baseHeaders;
+  }
+
+  return {
+    ...baseHeaders,
+    Authorization: token.startsWith('Bearer ') ? token : `Bearer ${token}`,
+  };
+}
 
 function decodeJwtPayload(token) {
   if (!token || typeof token !== 'string') {
@@ -151,28 +165,46 @@ async function handleResponse(response) {
   const data = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    const message = data?.message || response.statusText || 'An error occurred while talking to the API.';
+    const validationErrors = data?.errors && typeof data.errors === 'object'
+      ? Object.entries(data.errors)
+        .flatMap(([field, issues]) => {
+          if (!Array.isArray(issues)) {
+            return [];
+          }
+          return issues.map((issue) => `${field}: ${issue}`);
+        })
+      : [];
+
+    const message = validationErrors.length > 0
+      ? validationErrors.join(' | ')
+      : data?.detail
+        ?? data?.title
+        ?? data?.message
+        ?? response.statusText
+        ?? 'An error occurred while talking to the API.';
     throw new Error(message);
   }
 
   return data;
 }
 
-async function apiRequest({ url, method = 'POST', body }) {
-  const response = await fetch(buildUrl(url), {
+async function apiRequest({ url, method = 'GET', body, requireToken = false }) {
+  const requestOptions = {
     method,
-    headers: baseHeaders,
+    headers: getAuthHeaders({ requireToken }),
     body: body ? JSON.stringify(body) : undefined,
-  });
+  };
+
+  const response = await fetch(buildUrl(url), requestOptions);
   return handleResponse(response);
 }
 
 export async function sendVisitAnalytics(payload) {
-  return apiRequest({ url: '/analytics/visit', body: payload });
+  return apiRequest({ url: '/visits', method: 'POST', body: payload });
 }
 
 export async function loginUser(credentials) {
-  return apiRequest({ url: '/users/login', body: credentials });
+  return apiRequest({ url: '/users/login', method: 'POST', body: credentials });
 }
 
 export function decodeTokenClaims(token) {
@@ -194,10 +226,332 @@ export function parseLoginAuth(response, fallbackEmail) {
   };
 }
 
+function extractUserIdFromClaims(claims) {
+  if (!claims || typeof claims !== 'object') {
+    return null;
+  }
+
+  return claims.sub
+    ?? claims.userId
+    ?? claims.id
+    ?? claims.nameid
+    ?? claims['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier']
+    ?? null;
+}
+
+export function getCurrentUserId() {
+  const storedUserId = window.localStorage.getItem('spark-user-id');
+  if (storedUserId) {
+    return storedUserId;
+  }
+
+  const token = window.localStorage.getItem('spark-token');
+  if (!token) {
+    return null;
+  }
+
+  const claims = decodeTokenClaims(token) ?? decodeOpaqueTokenClaims(token);
+  const userId = extractUserIdFromClaims(claims);
+  if (userId !== null && userId !== undefined && String(userId).trim()) {
+    const normalized = String(userId).trim();
+    window.localStorage.setItem('spark-user-id', normalized);
+    return normalized;
+  }
+
+  return null;
+}
+
 export async function submitContactForm(payload) {
-  return apiRequest({ url: '/api/contact', body: payload });
+  return apiRequest({ url: '/api/contact', method: 'POST', body: payload });
 }
 
 export async function fetchDashboardOverview() {
   return apiRequest({ url: '/api/dashboard/overview', method: 'GET' });
+}
+
+export async function fetchChargers() {
+  return apiRequest({ url: '/Chargers', method: 'GET', requireToken: true });
+}
+
+export async function createCharger(payload) {
+  return apiRequest({ url: '/Chargers', method: 'POST', body: payload, requireToken: true });
+}
+
+export async function updateCharger(chargerId, payload) {
+  return apiRequest({
+    url: `/Chargers/${encodeURIComponent(chargerId)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteCharger(chargerId) {
+  return apiRequest({ url: `/Chargers/${encodeURIComponent(chargerId)}`, method: 'DELETE', requireToken: true });
+}
+
+export async function fetchBuses() {
+  return apiRequest({ url: '/Buses', method: 'GET', requireToken: true });
+}
+
+export async function fetchDistrictBuses() {
+  return apiRequest({ url: '/DistrictBuses', method: 'GET', requireToken: true });
+}
+
+export async function fetchDistrictChargersByDistrictId(districtId) {
+  return apiRequest({
+    url: `/DistrictChargers/district/${encodeURIComponent(districtId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
+export async function createDistrictCharger(payload) {
+  return apiRequest({ url: '/DistrictChargers', method: 'POST', body: payload, requireToken: true });
+}
+
+export async function updateDistrictCharger(identifiers, payload) {
+  const districtChargerId = identifiers?.districtChargerId ?? identifiers?.id ?? null;
+  const chargerId = identifiers?.chargerId ?? null;
+  const districtId = identifiers?.districtId ?? null;
+
+  const candidateUrls = [];
+  if (chargerId !== null && chargerId !== undefined && districtId !== null && districtId !== undefined) {
+    candidateUrls.push(`/DistrictChargers/${encodeURIComponent(chargerId)}/${encodeURIComponent(districtId)}`);
+  }
+  if (districtChargerId !== null && districtChargerId !== undefined) {
+    candidateUrls.push(`/DistrictChargers/${encodeURIComponent(districtChargerId)}`);
+  }
+
+  if (candidateUrls.length === 0) {
+    throw new Error('Unable to determine district charger id for update.');
+  }
+
+  let lastError = null;
+  for (const url of candidateUrls) {
+    try {
+      return await apiRequest({ url, method: 'PUT', body: payload, requireToken: true });
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Unable to update district charger right now.');
+}
+
+export async function deleteDistrictCharger(identifiers) {
+  const districtChargerId = identifiers?.districtChargerId ?? identifiers?.id ?? null;
+  const chargerId = identifiers?.chargerId ?? null;
+  const districtId = identifiers?.districtId ?? null;
+
+  const candidateUrls = [];
+  if (chargerId !== null && chargerId !== undefined && districtId !== null && districtId !== undefined) {
+    candidateUrls.push(`/DistrictChargers/${encodeURIComponent(chargerId)}/${encodeURIComponent(districtId)}`);
+  }
+  if (districtChargerId !== null && districtChargerId !== undefined) {
+    candidateUrls.push(`/DistrictChargers/${encodeURIComponent(districtChargerId)}`);
+  }
+
+  if (candidateUrls.length === 0) {
+    throw new Error('Unable to determine district charger id for delete.');
+  }
+
+  let lastError = null;
+  for (const url of candidateUrls) {
+    try {
+      return await apiRequest({ url, method: 'DELETE', requireToken: true });
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Unable to delete district charger right now.');
+}
+
+export async function fetchDistrictBusByBusNumberAndRouteId(busNumber, routeId) {
+  return apiRequest({
+    url: `/DistrictBuses/${encodeURIComponent(busNumber)}/${encodeURIComponent(routeId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
+export async function createDistrictBus(payload) {
+  return apiRequest({ url: '/DistrictBuses', method: 'POST', body: payload, requireToken: true });
+}
+
+export async function updateDistrictBus(busNumber, routeId, payload) {
+  return apiRequest({
+    url: `/DistrictBuses/${encodeURIComponent(busNumber)}/${encodeURIComponent(routeId)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteDistrictBus(busNumber, routeId) {
+  return apiRequest({
+    url: `/DistrictBuses/${encodeURIComponent(busNumber)}/${encodeURIComponent(routeId)}`,
+    method: 'DELETE',
+    requireToken: true,
+  });
+}
+
+export async function fetchBusById(busId) {
+  return apiRequest({ url: `/Buses/${encodeURIComponent(busId)}`, method: 'GET', requireToken: true });
+}
+
+export async function createBus(payload) {
+  return apiRequest({ url: '/Buses', method: 'POST', body: payload, requireToken: true });
+}
+
+export async function updateBus(busId, payload) {
+  return apiRequest({
+    url: `/Buses/${encodeURIComponent(busId)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteBus(busId) {
+  return apiRequest({ url: `/Buses/${encodeURIComponent(busId)}`, method: 'DELETE', requireToken: true });
+}
+
+export async function fetchDistricts() {
+  return apiRequest({ url: '/Districts', method: 'GET', requireToken: true });
+}
+
+export async function fetchDistrictById(districtId) {
+  return apiRequest({ url: `/Districts/${encodeURIComponent(districtId)}`, method: 'GET', requireToken: true });
+}
+
+export async function fetchRoutesByDistrictId(districtId) {
+  return apiRequest({
+    url: `/Routes/district/${encodeURIComponent(districtId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
+export async function createRoute(payload) {
+  return apiRequest({
+    url: '/Routes',
+    method: 'POST',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function fetchRouteById(routeId) {
+  return apiRequest({
+    url: `/Routes/${encodeURIComponent(routeId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
+export async function updateRoute(routeId, payload) {
+  return apiRequest({
+    url: `/Routes/${encodeURIComponent(routeId)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteRoute(routeId) {
+  return apiRequest({
+    url: `/Routes/${encodeURIComponent(routeId)}`,
+    method: 'DELETE',
+    requireToken: true,
+  });
+}
+
+export async function createRouteDetail(payload) {
+  return apiRequest({
+    url: '/RouteDetails',
+    method: 'POST',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function fetchRouteDetailsByRouteId(routeId) {
+  return apiRequest({
+    url: `/RouteDetails/route/${encodeURIComponent(routeId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
+export async function fetchRouteDetailById(routeDetailId) {
+  return apiRequest({
+    url: `/RouteDetails/${encodeURIComponent(routeDetailId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
+export async function updateRouteDetail(routeDetailId, payload) {
+  return apiRequest({
+    url: `/RouteDetails/${encodeURIComponent(routeDetailId)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteRouteDetail(routeDetailId) {
+  return apiRequest({
+    url: `/RouteDetails/${encodeURIComponent(routeDetailId)}`,
+    method: 'DELETE',
+    requireToken: true,
+  });
+}
+
+export async function createDistrict(payload) {
+  return apiRequest({ url: '/Districts', method: 'POST', body: payload, requireToken: true });
+}
+
+export async function updateDistrict(districtId, payload) {
+  return apiRequest({
+    url: `/Districts/${encodeURIComponent(districtId)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteDistrict(districtId) {
+  return apiRequest({ url: `/Districts/${encodeURIComponent(districtId)}`, method: 'DELETE', requireToken: true });
+}
+
+export async function fetchUsers() {
+  return apiRequest({ url: '/Users', method: 'GET', requireToken: true });
+}
+
+export async function fetchUserById(userId) {
+  return apiRequest({
+    url: `/users/${encodeURIComponent(userId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
+export async function createUser(payload) {
+  return apiRequest({ url: '/users/register', method: 'POST', body: payload, requireToken: true });
+}
+
+export async function updateUser(userId, payload) {
+  return apiRequest({
+    url: `/Users/${encodeURIComponent(userId)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteUser(userId) {
+  return apiRequest({ url: `/Users/${encodeURIComponent(userId)}`, method: 'DELETE', requireToken: true });
 }

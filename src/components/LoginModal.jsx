@@ -34,7 +34,7 @@ export default function LoginModal({ onClose, onSuccess }) {
       setStatus({ type: 'success', message: 'Login successful. Redirecting...' });
       if (onSuccess) onSuccess(auth);
       onClose();
-      navigate(isAdmin ? '/dashboard' : '/users');
+      navigate(isAdmin ? '/dashboard' : '/workspace/routes');
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Login failed. Please try again.' });
     } finally {

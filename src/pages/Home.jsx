@@ -1,29 +1,19 @@
 import './Home.css';
 
 export default function Home() {
-  const fleetStats = [
-    { label: 'Active Vehicles', value: '42', delta: '+3 today' },
-    { label: 'Routes Completed', value: '188', delta: '+11% week' },
-    { label: 'Average Delay', value: '4.2m', delta: '-0.8m trend' },
-    { label: 'Energy Efficiency', value: '92%', delta: '+2.4% month' },
+  const serviceHighlights = [
+    'Route feasibility and conversion planning',
+    'Charging strategy and utility peak optimization',
+    'Facility safety and infrastructure readiness',
   ];
 
-  const routeFeed = [
-    { route: 'Route A12', status: 'On Time', passengers: 64, eta: '09:42' },
-    { route: 'Route C04', status: 'Delayed', passengers: 51, eta: '09:55' },
-    { route: 'Route B18', status: 'On Time', passengers: 72, eta: '10:03' },
-    { route: 'Route E09', status: 'Boarding', passengers: 39, eta: '10:10' },
-    { route: 'Route D22', status: 'On Time', passengers: 57, eta: '10:18' },
-  ];
-
-  const energyTrend = [
-    { day: 'Mon', value: 72 },
-    { day: 'Tue', value: 64 },
-    { day: 'Wed', value: 81 },
-    { day: 'Thu', value: 76 },
-    { day: 'Fri', value: 88 },
-    { day: 'Sat', value: 70 },
-    { day: 'Sun', value: 67 },
+  const routesterCapabilities = [
+    'Route electrification simulation based on real operational constraints',
+    'Vehicle and charger matching with best-practice recommendations',
+    'Utility load and peak demand analysis for capacity planning',
+    'Battery and charging power recommendations by route profile',
+    'Software-generated charging schedules to preserve readiness and lower demand costs',
+    'Long-term degradation and replacement planning support',
   ];
 
   return (
@@ -31,91 +21,117 @@ export default function Home() {
       <div className="glow-orb glow-orb-left" />
       <div className="glow-orb glow-orb-right" />
 
-      <div className="relative z-10">
-        <h1 className="text-2xl font-black text-slate-900 sm:text-3xl lg:text-4xl">
-          Fleet Operations Overview
-        </h1>
-        <p className="mt-2 text-sm text-slate-600 sm:text-base">
-          Three live sections with sample operational data.
-        </p>
+      <div className="relative z-10 home-hero float-slow">
+        <div className="home-hero-header">
+          <p className="home-hero-kicker">EV Fleet Consulting Services</p>
+          <h1 className="home-hero-title">Plan, Deploy, and Scale Fleet Electrification with Confidence</h1>
+          <p className="home-hero-subtitle">
+            EVFCS helps districts and fleet operators move from early planning to operational execution with practical strategy,
+            software-backed decision support, and safety-first infrastructure guidance.
+          </p>
+        </div>
+
+        <div className="home-hero-metrics" role="list" aria-label="Experience highlights">
+          <article className="home-hero-metric" role="listitem">
+            <p className="home-hero-metric-value">5+ yrs</p>
+            <p className="home-hero-metric-label">EV School Bus Market Experience</p>
+          </article>
+          <article className="home-hero-metric" role="listitem">
+            <p className="home-hero-metric-value">30+ yrs</p>
+            <p className="home-hero-metric-label">Automotive Industry Expertise</p>
+          </article>
+          <article className="home-hero-metric" role="listitem">
+            <p className="home-hero-metric-value">Safety-First</p>
+            <p className="home-hero-metric-label">Facility and Operations Readiness Focus</p>
+          </article>
+        </div>
       </div>
 
-      <section className="relative z-10 glass-card rounded-2xl p-4 sm:p-6">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-bold text-slate-900 sm:text-xl">Section 1: Snapshot Metrics</h2>
-          <span className="rounded-full border border-orange-300/70 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-orange-700">
-            Live Sample
-          </span>
+      <section className="relative z-10 home-section-card">
+        <div className="home-section-heading">
+          <h2 className="home-section-title">About Us</h2>
+          <span className="home-section-tag">Consulting</span>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {fleetStats.map((item) => (
-            <article key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_4px_10px_rgba(15,23,42,0.04)]">
-              <p className="text-xs uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
-              <p className="mt-2 text-2xl font-black text-slate-900">{item.value}</p>
-              <p className="mt-1 text-xs font-semibold text-blue-700">{item.delta}</p>
-            </article>
-          ))}
-        </div>
-      </section>
+        <div className="home-section-body">
+          <p className="home-section-paragraph">
+            Our team brings 5+ years of direct experience in the EV school bus market, helping school
+districts with practical Fleet Electrification Planning. We specialize in converting traditional
+vehicles to electric for route feasibility studies, charging operations, deployment strategies, and
+product recommendations tailored to district needs.
+          </p>
+          <p className="home-section-paragraph">
+            We also have 5+ years of EV vehicle and infrastructure safety expertise, helping districts
+evaluate their facilities for the safe storage, charging, and maintenance of electric vehicles.
+Backed by 30+ years of automotive industry experience and in-house software expertise, we
+combine technical know-how and data-driven tools to deliver reliable, cost-effective
+electrification solutions.
+          </p>
 
-      <section className="relative z-10 glass-card rounded-2xl p-4 sm:p-6">
-        <h2 className="text-lg font-bold text-slate-900 sm:text-xl">Section 2: Route Performance Feed</h2>
-        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-3 font-semibold">Route</th>
-                <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Passengers</th>
-                <th className="px-4 py-3 font-semibold">ETA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {routeFeed.map((item) => (
-                <tr key={item.route} className="border-b border-slate-100 last:border-b-0">
-                  <td className="px-4 py-3 font-semibold text-slate-800">{item.route}</td>
-                  <td className="px-4 py-3">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.status === 'Delayed' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{item.passengers}</td>
-                  <td className="px-4 py-3 text-slate-600">{item.eta}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="home-feature-list" aria-label="EVFCS highlights">
+            {serviceHighlights.map((highlight) => (
+              <li key={highlight} className="home-feature-item">{highlight}</li>
+            ))}
+          </ul>
         </div>
       </section>
 
-      <section className="relative z-10 glass-card rounded-2xl p-4 sm:p-6">
-        <h2 className="text-lg font-bold text-slate-900 sm:text-xl">Section 3: Weekly Energy Trend</h2>
-        <div className="mt-4 grid gap-3">
-          {energyTrend.map((item) => (
-            <div key={item.day} className="grid grid-cols-[44px_1fr_44px] items-center gap-3">
-              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{item.day}</span>
-              <div className="h-3 rounded-full bg-slate-200">
-                <div
-                  className="h-3 rounded-full bg-gradient-to-r from-blue-500 to-orange-500"
-                  style={{ width: `${item.value}%` }}
-                />
-              </div>
-              <span className="text-right text-xs font-semibold text-slate-600">{item.value}%</span>
-            </div>
-          ))}
+      <section className="relative z-10 home-section-card">
+        <div className="home-section-heading">
+          <h2 className="home-section-title">ROUTESTER</h2>
+          <span className="home-section-tag">Software</span>
+        </div>
+
+        <div className="home-section-body">
+          <p className="home-section-paragraph">
+            A purpose-built software for fleet operators to identify which routes can be converted to EVs with
+today’s technology. Users choose vehicle and charger models, plan routes, and instantly see
+which combinations work. Routester offers best-practice recommendations while allowing users
+to test alternative products and compare multiple options.
+          </p>
+
+          <div className="home-capabilities" aria-label="Routester capabilities">
+            {routesterCapabilities.map((capability) => (
+              <p key={capability} className="home-capability-item">{capability}</p>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="relative z-10 home-section-card">
+        <div className="home-section-heading">
+          <h2 className="home-section-title">FACILITY EV READINESS REPORT</h2>
+          <span className="home-section-tag">Assessment</span>
+        </div>
+
+        <div className="home-section-body">
+          <p className="home-section-paragraph">
+Our Facility EV Readiness Report assesses your garage and support facilities specifically for
+electric vehicle storage, charging, and maintenance. Many existing facilities were not designed
+for EVs; our industry experts perform on-site evaluations to identify gaps and risks, then provide
+clear, prioritized recommendations for upgrades.
+
+          </p>
+          <p className="home-section-paragraph">
+Deliverables include: a facility condition assessment, recommended infrastructure and
+equipment changes, electrical service and charging layout guidance, safety and operational
+procedure recommendations, and documentation tailored for district decision-makers,
+regulators, insurers, and funding applications. Safety is paramount—our report ensures your
+facility meets operational, regulatory, and insurance requirements for a safe transition to electric
+fleets.
+          </p>
         </div>
       </section>
 
       <footer className="home-footer">
         <div className="home-footer-main">
           <div>
-            <p className="home-footer-title">EV Fleet Control</p>
-            <p className="home-footer-subtitle">Operational analytics and planning workspace</p>
+            <p className="home-footer-title">SparK</p>
+            <p className="home-footer-subtitle">Fleet Management</p>
           </div>
 
           <div className="home-footer-meta">
-            <span className="home-footer-pill">Demo Data</span>
+            <span className="home-footer-pill">EVFCS </span>
             <span className="home-footer-year">{new Date().getFullYear()}</span>
           </div>
         </div>

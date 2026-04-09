@@ -17,8 +17,8 @@ export default function Navbar({
             EV
           </span>
           <div className="navbar-titles">
-            <p className="navbar-title">Fleet Control</p>
-            <p className="navbar-subtitle">Operations Console</p>
+            <p className="navbar-title">SparK</p>
+            <p className="navbar-subtitle">Fleet Management</p>
           </div>
         </div>
 

@@ -8,9 +8,16 @@ import UsersPage from '@/pages/UsersPage';
 import BusesPage from '@/pages/BusesPage';
 import ChargersPage from '@/pages/ChargersPage';
 import DistrictsPage from '@/pages/DistrictsPage';
+import UserWorkspace from '@/pages/UserWorkspace';
+import UserRoutesPage from '@/pages/UserRoutesPage';
+import UserBusesPage from '@/pages/UserBusesPage';
+import UserChargersPage from '@/pages/UserChargersPage';
+import UserReportsPage from '@/pages/UserReportsPage';
+import UserDistrictDetailsPage from '@/pages/UserDistrictDetailsPage';
 import LoginModal from '@/components/LoginModal';
 import ContactModal from '@/components/ContactModal';
 import { sendVisitAnalytics, decodeTokenClaims } from '@/apiCalls';
+import { buildVisitAnalyticsPayload } from '@/analytics/visitPayload';
 
 function parseStoredRoles() {
   const raw = window.localStorage.getItem('spark-user-roles');
@@ -29,6 +36,19 @@ function parseStoredRoles() {
 
 function hasAdminRole(roles) {
   return roles.some((role) => String(role).toLowerCase() === 'admin');
+}
+
+function extractUserIdFromClaims(claims) {
+  if (!claims || typeof claims !== 'object') {
+    return null;
+  }
+
+  return claims.sub
+    ?? claims.userId
+    ?? claims.id
+    ?? claims.nameid
+    ?? claims['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier']
+    ?? null;
 }
 
 function AppContent() {
@@ -79,17 +99,19 @@ function AppContent() {
         window.localStorage.setItem('spark-user-roles', JSON.stringify(normalizedRoles));
       }
     }
+
+    const claimUserId = extractUserIdFromClaims(claims);
+    if (claimUserId !== null && claimUserId !== undefined && !window.localStorage.getItem('spark-user-id')) {
+      window.localStorage.setItem('spark-user-id', String(claimUserId));
+    }
   }, []);
 
   useEffect(() => {
     const recordVisit = async () => {
-      const payload = {
-        path: location.pathname,
-        timestamp: new Date().toISOString(),
-        referrer: document.referrer,
-        screenWidth: window.screen.width,
-        userAgent: navigator.userAgent,
-      };
+      const payload = buildVisitAnalyticsPayload({
+        location,
+        isAuthenticated,
+      });
 
       try {
         await sendVisitAnalytics(payload);
@@ -99,7 +121,7 @@ function AppContent() {
     };
 
     recordVisit();
-  }, [location]); // This trigger fires every time the URL changes
+  }, [isAuthenticated, location]); // This trigger fires every time the URL changes
 
   useEffect(() => {
     window.localStorage.setItem('spark-authenticated', isAuthenticated ? 'true' : 'false');
@@ -108,6 +130,7 @@ function AppContent() {
       window.localStorage.removeItem('spark-user-role');
       window.localStorage.removeItem('spark-user-roles');
       window.localStorage.removeItem('spark-token');
+      window.localStorage.removeItem('spark-user-id');
       setUserName('Fleet Manager');
       setUserRole('User');
       setUserRoles(['User']);
@@ -133,19 +156,39 @@ function AppContent() {
     window.localStorage.setItem('spark-user-name', normalizedName);
     window.localStorage.setItem('spark-user-role', normalizedRole);
     window.localStorage.setItem('spark-user-roles', JSON.stringify(normalizedRoles));
+    const claimUserId = extractUserIdFromClaims(auth?.claims);
+    if (claimUserId !== null && claimUserId !== undefined) {
+      window.localStorage.setItem('spark-user-id', String(claimUserId));
+    }
     if (auth?.token) {
       window.localStorage.setItem('spark-token', auth.token);
     }
   };
 
   const isAdmin = hasAdminRole(userRoles);
-  const authPaths = ['/dashboard', '/users', '/buses', '/chargers', '/districts'];
+  const authPaths = [
+    '/dashboard',
+    '/users',
+    '/buses',
+    '/chargers',
+    '/districts',
+    '/workspace/routes',
+    '/workspace/buses',
+    '/workspace/chargers',
+    '/workspace/reports',
+    '/workspace/district-details',
+  ];
   const authTitles = {
     '/dashboard': 'Dashboard',
     '/users': 'Users',
     '/buses': 'Buses',
     '/chargers': 'Chargers',
     '/districts': 'Districts',
+    '/workspace/routes': 'Routes',
+    '/workspace/buses': 'Buses',
+    '/workspace/chargers': 'Chargers',
+    '/workspace/reports': 'Reports',
+    '/workspace/district-details': 'District Details',
   };
   const showAuthenticatedNavbar = isAuthenticated && authPaths.includes(location.pathname);
   const authNavbarTitle = authTitles[location.pathname] || 'Workspace';
@@ -166,7 +209,7 @@ function AppContent() {
         />
       )}
 
-      <main className="app-main relative z-10">
+      <main className="app-main relative">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route
@@ -199,6 +242,19 @@ function AppContent() {
               !isAuthenticated ? <Navigate to="/" replace /> : <DistrictsPage />
             }
           />
+          <Route
+            path="/workspace"
+            element={
+              !isAuthenticated ? <Navigate to="/" replace /> : (isAdmin ? <Navigate to="/dashboard" replace /> : <UserWorkspace />)
+            }
+          >
+            <Route index element={<Navigate to="routes" replace />} />
+            <Route path="routes" element={<UserRoutesPage />} />
+            <Route path="buses" element={<UserBusesPage />} />
+            <Route path="chargers" element={<UserChargersPage />} />
+            <Route path="reports" element={<UserReportsPage />} />
+            <Route path="district-details" element={<UserDistrictDetailsPage />} />
+          </Route>
         </Routes>
       </main>
 

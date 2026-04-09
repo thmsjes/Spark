@@ -15,7 +15,7 @@ export default function DashboardNavbar({ title = 'Dashboard', userName = 'Fleet
         <div className="navbar-brand">
           <span className="navbar-logo">EV</span>
           <div className="navbar-titles">
-            <p className="navbar-title">{title}</p>
+            <p className="navbar-title">Admin</p>
             <p className="navbar-subtitle">Welcome back, {userName} ({userRole})</p>
           </div>
         </div>
