@@ -135,8 +135,29 @@ function getSerializablePayload(formData) {
   }, {});
 }
 
+function getUserTableDisplayValue(user, columnKey, districtNameById) {
+  const rawValue = getFieldValue(user, columnKey);
+  let displayValue = rawValue;
+
+  if (columnKey === 'DistrictId') {
+    displayValue = districtNameById[String(rawValue)] || rawValue;
+  }
+
+  if (columnKey === 'LastLogin' || columnKey === 'DateTimeInserted') {
+    displayValue = formatDateValue(rawValue);
+  }
+
+  if (displayValue === null || displayValue === undefined || displayValue === '') {
+    return '-';
+  }
+
+  return String(displayValue);
+}
+
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [districts, setDistricts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -148,6 +169,18 @@ export default function UsersPage() {
   const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
   const [viewUser, setViewUser] = useState(null);
 
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setError('');
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
+
   const districtNameById = districts.reduce((acc, district) => {
     const districtId = getFieldValue(district, 'Id');
     const districtName = getFieldValue(district, 'Name');
@@ -156,6 +189,37 @@ export default function UsersPage() {
     }
     return acc;
   }, {});
+
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const filteredUsers = normalizedSearch
+    ? users.filter((user) => TABLE_COLUMNS.some((column) =>
+      getUserTableDisplayValue(user, column.key, districtNameById).toLowerCase().includes(normalizedSearch)
+    ))
+    : users;
+  const sortedUsers = sortConfig.key
+    ? [...filteredUsers].sort((left, right) => {
+      const leftValue = getUserTableDisplayValue(left, sortConfig.key, districtNameById).toLowerCase();
+      const rightValue = getUserTableDisplayValue(right, sortConfig.key, districtNameById).toLowerCase();
+      const comparison = leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: 'base' });
+      return sortConfig.direction === 'asc' ? comparison : -comparison;
+    })
+    : filteredUsers;
+
+  const handleSort = (columnKey) => {
+    setSortConfig((previous) => {
+      if (previous.key === columnKey) {
+        return {
+          key: columnKey,
+          direction: previous.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+
+      return {
+        key: columnKey,
+        direction: 'asc',
+      };
+    });
+  };
 
   const loadPageData = async () => {
     setIsLoading(true);
@@ -317,12 +381,41 @@ export default function UsersPage() {
           <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
 
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search users..."
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200 sm:flex-1"
+          />
+          <button
+            type="button"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => setSortConfig({ key: null, direction: 'asc' })}
+            disabled={!sortConfig.key}
+          >
+            Clear Sort
+          </button>
+        </div>
+
         <div className="mt-6 w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-max w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
               <tr>
                 {TABLE_COLUMNS.map((column) => (
-                  <th key={column.key} className="whitespace-nowrap px-4 py-3">{column.label}</th>
+                  <th key={column.key} className="whitespace-nowrap px-4 py-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-left"
+                      onClick={() => handleSort(column.key)}
+                    >
+                      <span>{column.label}</span>
+                      {sortConfig.key === column.key && (
+                        <span className="text-[10px] text-slate-500">{sortConfig.direction === 'asc' ? '(asc)' : '(desc)'}</span>
+                      )}
+                    </button>
+                  </th>
                 ))}
                 <th className="sticky right-0 z-10 whitespace-nowrap bg-slate-50 px-4 py-3 shadow-[-1px_0_0_0_rgba(226,232,240,1)]">Actions</th>
               </tr>
@@ -334,37 +427,22 @@ export default function UsersPage() {
                     Loading users...
                   </td>
                 </tr>
-              ) : users.length === 0 ? (
+              ) : sortedUsers.length === 0 ? (
                 <tr>
                   <td className="px-4 py-6 text-center text-slate-500" colSpan={TABLE_COLUMNS.length + 1}>
-                    No Users Found
+                    {searchTerm.trim() ? 'No users match your search.' : 'No Users Found'}
                   </td>
                 </tr>
               ) : (
-                users.map((user, index) => {
+                sortedUsers.map((user, index) => {
                   const rowId = getUserId(user) ?? index;
 
                   return (
                     <tr key={rowId}>
                       {TABLE_COLUMNS.map((column) => {
-                        const rawValue = getFieldValue(user, column.key);
-                        let displayValue = rawValue;
-
-                        if (column.key === 'DistrictId') {
-                          displayValue = districtNameById[String(rawValue)] || rawValue;
-                        }
-
-                        if (column.key === 'LastLogin' || column.key === 'DateTimeInserted') {
-                          displayValue = formatDateValue(rawValue);
-                        }
-
-                        if (displayValue === null || displayValue === undefined || displayValue === '') {
-                          displayValue = '-';
-                        }
-
                         return (
                           <td key={`${rowId}-${column.key}`} className="whitespace-nowrap px-4 py-3 align-top">
-                            {String(displayValue)}
+                            {getUserTableDisplayValue(user, column.key, districtNameById)}
                           </td>
                         );
                       })}
@@ -425,7 +503,7 @@ export default function UsersPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2" noValidate>
               {USER_FORM_FIELDS.map((field) => (
                 <label key={field.key} className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                   {field.label}

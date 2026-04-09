@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
 import SidebarMenu from '@/components/SidebarMenu';
-import { createDistrict, deleteDistrict, fetchDistrictById, fetchDistricts, updateDistrict } from '@/apiCalls';
+import {
+  createDistrict,
+  deleteDistrict,
+  fetchBuses,
+  fetchDistrictById,
+  fetchDistricts,
+  fetchRouteDetailsByRouteId,
+  updateDistrict,
+} from '@/apiCalls';
 
 const TABLE_COLUMNS = [
   { key: 'Name', label: 'Name' },
-  { key: 'Address', label: 'Address' },
   { key: 'City', label: 'City' },
   { key: 'State', label: 'State' },
-  { key: 'Zip', label: 'Zip' },
-  { key: 'PhoneNumber', label: 'Phone Number' },
-  { key: 'DateTimeInserted', label: 'Created' },
+  { key: 'BusCount', label: 'Bus Count' },
+  { key: 'ChargerCount', label: 'Charger Count' },
+  { key: 'RouteCount', label: 'Route Count' },
 ];
 
 const DISTRICT_FORM_FIELDS = [
@@ -19,6 +26,9 @@ const DISTRICT_FORM_FIELDS = [
   { key: 'State', label: 'State' },
   { key: 'Zip', label: 'Zip' },
   { key: 'PhoneNumber', label: 'Phone Number' },
+  { key: 'BusCount', label: 'Bus Count', type: 'number', payloadKey: 'busCount' },
+  { key: 'ChargerCount', label: 'Charger Count', type: 'number', payloadKey: 'chargerCount' },
+  { key: 'RouteCount', label: 'Route Count', type: 'number', payloadKey: 'routeCount' },
 ];
 
 const STATE_OPTIONS = [
@@ -69,16 +79,26 @@ function getObjectFieldValue(entity, key) {
 }
 
 function getDistrictUsers(district) {
-  const users = getDistrictFieldValue(district, 'Users');
+  const users = getDistrictFieldValue(district, 'Users')
+    ?? getDistrictFieldValue(district, 'DistrictUsers');
   return Array.isArray(users) ? users : [];
 }
 
 function getDistrictBuses(district) {
-  const buses = getDistrictFieldValue(district, 'Buses');
+  const buses = getDistrictFieldValue(district, 'Buses')
+    ?? getDistrictFieldValue(district, 'DistrictBuses')
+    ?? getDistrictFieldValue(district, 'BusAssignments');
   return Array.isArray(buses) ? buses : [];
 }
 
 function getDistrictRoutes(district) {
+  const directRoutes = getDistrictFieldValue(district, 'Routes')
+    ?? getDistrictFieldValue(district, 'DistrictRoutes');
+
+  if (Array.isArray(directRoutes) && directRoutes.length > 0) {
+    return directRoutes;
+  }
+
   const buses = getDistrictBuses(district);
   const routeMap = new Map();
 
@@ -102,6 +122,283 @@ function getDistrictRoutes(district) {
   });
 
   return Array.from(routeMap.values());
+}
+
+function normalizeCollectionResponse(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  if (Array.isArray(response?.data)) {
+    return response.data;
+  }
+
+  if (Array.isArray(response?.items)) {
+    return response.items;
+  }
+
+  return [];
+}
+
+function buildBusTypeLabelMap(busTypeRecords) {
+  return busTypeRecords.reduce((acc, record) => {
+    const id = getObjectFieldValue(record, 'Id') ?? getObjectFieldValue(record, 'BusTypeId');
+    if (id === null || id === undefined || String(id).trim() === '') {
+      return acc;
+    }
+
+    const vehicleOem = String(getObjectFieldValue(record, 'VehicleOem') ?? '').trim();
+    const model = String(getObjectFieldValue(record, 'Model') ?? '').trim();
+    const studentCapacity = String(getObjectFieldValue(record, 'StudentCapacity') ?? '').trim();
+
+    const friendly = [vehicleOem, model, studentCapacity].filter(Boolean).join(' / ');
+    if (friendly) {
+      acc[String(id)] = friendly;
+      return acc;
+    }
+
+    const fallback = String(getObjectFieldValue(record, 'Type') ?? getObjectFieldValue(record, 'BusTypeName') ?? '').trim();
+    if (fallback) {
+      acc[String(id)] = fallback;
+    }
+
+    return acc;
+  }, {});
+}
+
+function getRouteIdentity(route) {
+  const routeId = getObjectFieldValue(route, 'RouteId') ?? getObjectFieldValue(route, 'Id');
+  const routeNumber = getObjectFieldValue(route, 'RouteNumber') ?? getObjectFieldValue(route, 'RouteNo');
+  const routeDescription = String(
+    getObjectFieldValue(route, 'RouteDescription')
+      ?? getObjectFieldValue(route, 'RouteName')
+      ?? ''
+  ).trim().toLowerCase();
+
+  return { routeId, routeNumber, routeDescription };
+}
+
+function getBusesForRoute(district, route) {
+  const buses = getDistrictBuses(district);
+  if (buses.length === 0) {
+    return [];
+  }
+
+  const { routeId, routeNumber, routeDescription } = getRouteIdentity(route);
+
+  return buses.filter((bus) => {
+    const busRouteId = getObjectFieldValue(bus, 'RouteId');
+    const busRouteNumber = getObjectFieldValue(bus, 'RouteNumber') ?? getObjectFieldValue(bus, 'RouteNo');
+    const busRouteDescription = String(getObjectFieldValue(bus, 'RouteDescription') ?? '').trim().toLowerCase();
+
+    if (routeId !== null && routeId !== undefined && routeId !== '') {
+      return String(busRouteId ?? '') === String(routeId);
+    }
+
+    if (routeNumber !== null && routeNumber !== undefined && routeNumber !== '') {
+      return String(busRouteNumber ?? '') === String(routeNumber);
+    }
+
+    if (routeDescription) {
+      return busRouteDescription === routeDescription;
+    }
+
+    return false;
+  });
+}
+
+function getBusNumbersForRoute(district, route) {
+  const uniqueBusNumbers = Array.from(new Set(
+    getBusesForRoute(district, route)
+      .map((bus) => getObjectFieldValue(bus, 'BusNumber'))
+      .filter((busNumber) => busNumber !== null && busNumber !== undefined && String(busNumber).trim() !== '')
+      .map((busNumber) => String(busNumber))
+  ));
+
+  if (uniqueBusNumbers.length === 0) {
+    return '-';
+  }
+
+  return uniqueBusNumbers.join(', ');
+}
+
+function getFriendlyBusTypeLabel(bus, busTypeLabelById = {}) {
+  const busTypeObject = getObjectFieldValue(bus, 'BusType');
+  const busTypeId = getObjectFieldValue(bus, 'BusTypeId') ?? getObjectFieldValue(bus, 'TypeId');
+
+  if (busTypeId !== null && busTypeId !== undefined && String(busTypeId).trim() !== '') {
+    const mappedLabel = busTypeLabelById[String(busTypeId)];
+    if (typeof mappedLabel === 'string' && mappedLabel.trim()) {
+      return mappedLabel.trim();
+    }
+  }
+
+  const vehicleOem = String(
+    getObjectFieldValue(bus, 'VehicleOem')
+      ?? getObjectFieldValue(busTypeObject, 'VehicleOem')
+      ?? ''
+  ).trim();
+  const model = String(
+    getObjectFieldValue(bus, 'Model')
+      ?? getObjectFieldValue(busTypeObject, 'Model')
+      ?? ''
+  ).trim();
+  const studentCapacity = String(
+    getObjectFieldValue(bus, 'StudentCapacity')
+      ?? getObjectFieldValue(busTypeObject, 'StudentCapacity')
+      ?? ''
+  ).trim();
+
+  const friendlyParts = [vehicleOem, model, studentCapacity].filter(Boolean);
+  if (friendlyParts.length > 0) {
+    return friendlyParts.join(' / ');
+  }
+
+  const namedType = getObjectFieldValue(bus, 'BusTypeName')
+    ?? getObjectFieldValue(busTypeObject, 'BusTypeName')
+    ?? getObjectFieldValue(bus, 'BusType')
+    ?? getObjectFieldValue(bus, 'BusTypeDescription')
+    ?? getObjectFieldValue(busTypeObject, 'BusTypeDescription')
+    ?? getObjectFieldValue(bus, 'TypeName');
+
+  if (typeof namedType === 'string' && namedType.trim()) {
+    return namedType.trim();
+  }
+
+  if (busTypeId === null || busTypeId === undefined || String(busTypeId).trim() === '') {
+    return null;
+  }
+
+  return `Type ${String(busTypeId).trim()}`;
+}
+
+function getAssignedRouteLabel(district, bus) {
+  const directRouteLabel = getObjectFieldValue(bus, 'RouteDescription') ?? getObjectFieldValue(bus, 'RouteName');
+  if (typeof directRouteLabel === 'string' && directRouteLabel.trim()) {
+    return directRouteLabel.trim();
+  }
+
+  const busRouteId = getObjectFieldValue(bus, 'RouteId');
+  const busRouteNumber = getObjectFieldValue(bus, 'RouteNumber') ?? getObjectFieldValue(bus, 'RouteNo');
+  const routes = getDistrictRoutes(district);
+
+  const matchedRoute = routes.find((route) => {
+    const routeId = getObjectFieldValue(route, 'RouteId') ?? getObjectFieldValue(route, 'Id');
+    const routeNumber = getObjectFieldValue(route, 'RouteNumber') ?? getObjectFieldValue(route, 'RouteNo');
+
+    if (busRouteId !== null && busRouteId !== undefined && String(busRouteId).trim() !== '') {
+      return String(routeId ?? '') === String(busRouteId);
+    }
+
+    if (busRouteNumber !== null && busRouteNumber !== undefined && String(busRouteNumber).trim() !== '') {
+      return String(routeNumber ?? '') === String(busRouteNumber);
+    }
+
+    return false;
+  });
+
+  if (matchedRoute) {
+    const matchedLabel = getObjectFieldValue(matchedRoute, 'RouteDescription')
+      ?? getObjectFieldValue(matchedRoute, 'RouteName');
+    if (typeof matchedLabel === 'string' && matchedLabel.trim()) {
+      return matchedLabel.trim();
+    }
+  }
+
+  if (busRouteNumber !== null && busRouteNumber !== undefined && String(busRouteNumber).trim() !== '') {
+    return `Route ${String(busRouteNumber).trim()}`;
+  }
+
+  return null;
+}
+
+function getRouteEmbeddedTotalMiles(route) {
+  const directMiles = getObjectFieldValue(route, 'TotalMiles') ?? getObjectFieldValue(route, 'totalMiles');
+  if (directMiles !== null && directMiles !== undefined && String(directMiles).trim() !== '') {
+    const parsed = Number(directMiles);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  const details = getObjectFieldValue(route, 'RouteDetails') ?? getObjectFieldValue(route, 'Details');
+  if (!Array.isArray(details) || details.length === 0) {
+    return null;
+  }
+
+  return details.reduce((sum, detail) => {
+    const miles = Number(getObjectFieldValue(detail, 'Miles') ?? 0);
+    return Number.isNaN(miles) ? sum : sum + miles;
+  }, 0);
+}
+
+function parseTimeSpanToMinutes(value) {
+  const raw = String(value ?? '').trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] ?? 0);
+
+  if (
+    Number.isNaN(hours)
+    || Number.isNaN(minutes)
+    || Number.isNaN(seconds)
+    || hours < 0
+    || hours > 23
+    || minutes < 0
+    || minutes > 59
+    || seconds < 0
+    || seconds > 59
+  ) {
+    return null;
+  }
+
+  return (hours * 60) + minutes + (seconds / 60);
+}
+
+function formatDurationMinutes(totalMinutes) {
+  const roundedMinutes = Math.round(Number(totalMinutes) || 0);
+  const hoursPart = Math.floor(roundedMinutes / 60);
+  const minutesPart = roundedMinutes % 60;
+
+  if (hoursPart === 0) {
+    return `${minutesPart}m`;
+  }
+
+  return `${hoursPart}h ${String(minutesPart).padStart(2, '0')}m`;
+}
+
+function getRouteEmbeddedTotalMinutes(route) {
+  const directMinutes = getObjectFieldValue(route, 'TotalMinutes')
+    ?? getObjectFieldValue(route, 'totalMinutes')
+    ?? getObjectFieldValue(route, 'DurationMinutes')
+    ?? getObjectFieldValue(route, 'durationMinutes');
+  if (directMinutes !== null && directMinutes !== undefined && String(directMinutes).trim() !== '') {
+    const parsed = Number(directMinutes);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  const details = getObjectFieldValue(route, 'RouteDetails') ?? getObjectFieldValue(route, 'Details');
+  if (!Array.isArray(details) || details.length === 0) {
+    return null;
+  }
+
+  return details.reduce((sum, detail) => {
+    const start = parseTimeSpanToMinutes(getObjectFieldValue(detail, 'StartTime'));
+    const end = parseTimeSpanToMinutes(getObjectFieldValue(detail, 'EndTime'));
+    if (start === null || end === null) {
+      return sum;
+    }
+
+    const delta = end >= start ? end - start : (24 * 60) - start + end;
+    return sum + delta;
+  }, 0);
 }
 
 function formatValue(value) {
@@ -173,6 +470,15 @@ function buildDefaultFormData() {
 function getSerializablePayload(formData) {
   return DISTRICT_FORM_FIELDS.reduce((acc, field) => {
     const rawValue = formData[field.key];
+
+    if (field.type === 'number') {
+      const parsed = parseInt(String(rawValue ?? ''), 10);
+      if (!Number.isNaN(parsed)) {
+        acc[field.payloadKey ?? field.key] = parsed;
+      }
+      return acc;
+    }
+
     if (typeof rawValue !== 'string') {
       return acc;
     }
@@ -203,6 +509,8 @@ function formatPhoneNumberInput(value) {
 
 export default function DistrictsPage() {
   const [districts, setDistricts] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -214,6 +522,21 @@ export default function DistrictsPage() {
   const [viewDistrict, setViewDistrict] = useState(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isViewLoading, setIsViewLoading] = useState(false);
+  const [routeMilesByRouteId, setRouteMilesByRouteId] = useState({});
+  const [routeMinutesByRouteId, setRouteMinutesByRouteId] = useState({});
+  const [busTypeLabelById, setBusTypeLabelById] = useState({});
+
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setError('');
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
 
   const loadDistricts = async () => {
     setIsLoading(true);
@@ -232,6 +555,101 @@ export default function DistrictsPage() {
   useEffect(() => {
     loadDistricts();
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadBusTypeLabels = async () => {
+      try {
+        const response = await fetchBuses();
+        const records = normalizeCollectionResponse(response);
+        if (!isMounted) {
+          return;
+        }
+        setBusTypeLabelById(buildBusTypeLabelMap(records));
+      } catch {
+        if (isMounted) {
+          setBusTypeLabelById({});
+        }
+      }
+    };
+
+    loadBusTypeLabels();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isViewModalOpen || !viewDistrict) {
+      setRouteMilesByRouteId({});
+      setRouteMinutesByRouteId({});
+      return;
+    }
+
+    const routes = getDistrictRoutes(viewDistrict);
+    const routeIds = Array.from(new Set(
+      routes
+        .map((route) => getObjectFieldValue(route, 'RouteId') ?? getObjectFieldValue(route, 'Id'))
+        .filter((routeId) => routeId !== null && routeId !== undefined && String(routeId).trim() !== '')
+        .map((routeId) => String(routeId))
+    ));
+
+    if (routeIds.length === 0) {
+      setRouteMilesByRouteId({});
+      setRouteMinutesByRouteId({});
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadRouteMetrics = async () => {
+      const entries = await Promise.all(routeIds.map(async (routeId) => {
+        try {
+          const detailsResponse = await fetchRouteDetailsByRouteId(routeId);
+          const details = normalizeCollectionResponse(detailsResponse);
+          const totalMiles = details.reduce((sum, detail) => {
+            const miles = Number(getObjectFieldValue(detail, 'Miles') ?? 0);
+            return Number.isNaN(miles) ? sum : sum + miles;
+          }, 0);
+          const totalMinutes = details.reduce((sum, detail) => {
+            const start = parseTimeSpanToMinutes(getObjectFieldValue(detail, 'StartTime'));
+            const end = parseTimeSpanToMinutes(getObjectFieldValue(detail, 'EndTime'));
+            if (start === null || end === null) {
+              return sum;
+            }
+
+            const delta = end >= start ? end - start : (24 * 60) - start + end;
+            return sum + delta;
+          }, 0);
+
+          return [routeId, { totalMiles, totalMinutes }];
+        } catch {
+          return [routeId, { totalMiles: null, totalMinutes: null }];
+        }
+      }));
+
+      if (!isMounted) {
+        return;
+      }
+
+      const nextMilesMap = {};
+      const nextMinutesMap = {};
+      entries.forEach(([routeId, metrics]) => {
+        nextMilesMap[routeId] = metrics?.totalMiles ?? null;
+        nextMinutesMap[routeId] = metrics?.totalMinutes ?? null;
+      });
+      setRouteMilesByRouteId(nextMilesMap);
+      setRouteMinutesByRouteId(nextMinutesMap);
+    };
+
+    loadRouteMetrics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isViewModalOpen, viewDistrict]);
 
   const openCreateModal = () => {
     setError('');
@@ -313,6 +731,8 @@ export default function DistrictsPage() {
 
     setIsViewModalOpen(false);
     setViewDistrict(null);
+    setRouteMilesByRouteId({});
+    setRouteMinutesByRouteId({});
   };
 
   const confirmDeleteDistrict = async () => {
@@ -363,6 +783,37 @@ export default function DistrictsPage() {
     }
   };
 
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const filteredDistricts = normalizedSearch
+    ? districts.filter((district) => TABLE_COLUMNS.some((column) =>
+      String(formatDistrictCellValue(district, column.key)).toLowerCase().includes(normalizedSearch)
+    ))
+    : districts;
+  const sortedDistricts = sortConfig.key
+    ? [...filteredDistricts].sort((left, right) => {
+      const leftValue = String(formatDistrictCellValue(left, sortConfig.key) ?? '').toLowerCase();
+      const rightValue = String(formatDistrictCellValue(right, sortConfig.key) ?? '').toLowerCase();
+      const comparison = leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: 'base' });
+      return sortConfig.direction === 'asc' ? comparison : -comparison;
+    })
+    : filteredDistricts;
+
+  const handleSort = (columnKey) => {
+    setSortConfig((previous) => {
+      if (previous.key === columnKey) {
+        return {
+          key: columnKey,
+          direction: previous.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+
+      return {
+        key: columnKey,
+        direction: 'asc',
+      };
+    });
+  };
+
   return (
     <section className="mx-auto grid w-full max-w-[92rem] gap-4 px-4 pb-16 pt-8 sm:px-6 lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-4 lg:px-6 xl:px-8">
       <SidebarMenu />
@@ -389,12 +840,41 @@ export default function DistrictsPage() {
           <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
 
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search districts..."
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200 sm:flex-1"
+          />
+          <button
+            type="button"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => setSortConfig({ key: null, direction: 'asc' })}
+            disabled={!sortConfig.key}
+          >
+            Clear Sort
+          </button>
+        </div>
+
         <div className="mt-6 w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-max w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
               <tr>
                 {TABLE_COLUMNS.map((column) => (
-                  <th key={column.key} className="whitespace-nowrap px-4 py-3">{column.label}</th>
+                  <th key={column.key} className="whitespace-nowrap px-4 py-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-left"
+                      onClick={() => handleSort(column.key)}
+                    >
+                      <span>{column.label}</span>
+                      {sortConfig.key === column.key && (
+                        <span className="text-[10px] text-slate-500">{sortConfig.direction === 'asc' ? '(asc)' : '(desc)'}</span>
+                      )}
+                    </button>
+                  </th>
                 ))}
                 <th className="whitespace-nowrap px-4 py-3">Actions</th>
               </tr>
@@ -406,14 +886,14 @@ export default function DistrictsPage() {
                     Loading districts...
                   </td>
                 </tr>
-              ) : districts.length === 0 ? (
+              ) : sortedDistricts.length === 0 ? (
                 <tr>
                   <td className="px-4 py-6 text-center text-slate-500" colSpan={TABLE_COLUMNS.length + 1}>
-                    No Districts Found
+                    {searchTerm.trim() ? 'No districts match your search.' : 'No Districts Found'}
                   </td>
                 </tr>
               ) : (
-                districts.map((district, index) => {
+                sortedDistricts.map((district, index) => {
                   const rowId = getDistrictId(district) ?? index;
 
                   return (
@@ -480,7 +960,7 @@ export default function DistrictsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2" noValidate>
               {DISTRICT_FORM_FIELDS.map((field) => (
                 <label key={field.key} className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                   {field.label}
@@ -500,6 +980,19 @@ export default function DistrictsPage() {
                         <option key={stateCode} value={stateCode}>{stateCode}</option>
                       ))}
                     </select>
+                  ) : field.type === 'number' ? (
+                    <input
+                      type="number"
+                      min="0"
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                      value={formData[field.key] ?? ''}
+                      onChange={(event) =>
+                        setFormData((previous) => ({
+                          ...previous,
+                          [field.key]: event.target.value,
+                        }))
+                      }
+                    />
                   ) : (
                     <input
                       type="text"
@@ -566,6 +1059,28 @@ export default function DistrictsPage() {
             ) : (
               <div className="space-y-5">
                 <section>
+                  <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">District Info</h3>
+                  <dl className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:grid-cols-3">
+                    {[
+                      { label: 'Address', key: 'Address' },
+                      { label: 'City', key: 'City' },
+                      { label: 'State', key: 'State' },
+                      { label: 'Zip', key: 'Zip' },
+                      { label: 'Phone Number', key: 'PhoneNumber' },
+                      { label: 'Bus Count', key: 'BusCount' },
+                      { label: 'Charger Count', key: 'ChargerCount' },
+                      { label: 'Route Count', key: 'RouteCount' },
+                      { label: 'Created', key: 'DateTimeInserted' },
+                    ].map(({ label, key }) => (
+                      <div key={key}>
+                        <dt className="text-xs font-semibold text-slate-500">{label}</dt>
+                        <dd className="mt-0.5 text-slate-800">{formatValue(getDistrictFieldValue(viewDistrict, key))}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+
+                <section>
                   <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">Users</h3>
                   <div className="overflow-x-auto rounded-xl border border-slate-200">
                     <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -611,25 +1126,44 @@ export default function DistrictsPage() {
                     <table className="min-w-full divide-y divide-slate-200 text-sm">
                       <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                         <tr>
-                          <th className="whitespace-nowrap px-3 py-2">Route ID</th>
-                          <th className="whitespace-nowrap px-3 py-2">Route Number</th>
-                          <th className="whitespace-nowrap px-3 py-2">Description</th>
+                          <th className="whitespace-nowrap px-3 py-2">Route</th>
+                          <th className="whitespace-nowrap px-3 py-2">Total Miles</th>
+                          <th className="whitespace-nowrap px-3 py-2">Total Duration</th>
+                          <th className="whitespace-nowrap px-3 py-2">Bus Number Assigned</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 text-slate-700">
                         {getDistrictRoutes(viewDistrict).length === 0 ? (
                           <tr>
-                            <td className="px-3 py-3 text-center text-slate-500" colSpan={3}>No routes found.</td>
+                            <td className="px-3 py-3 text-center text-slate-500" colSpan={4}>No routes found.</td>
                           </tr>
                         ) : (
                           getDistrictRoutes(viewDistrict).map((route, index) => {
-                            const routeKey = route.RouteId ?? route.RouteNumber ?? index;
+                            const routeId = getObjectFieldValue(route, 'RouteId') ?? getObjectFieldValue(route, 'Id');
+                            const routeNumber = getObjectFieldValue(route, 'RouteNumber') ?? getObjectFieldValue(route, 'RouteNo');
+                            const routeName = getObjectFieldValue(route, 'RouteDescription') ?? getObjectFieldValue(route, 'RouteName');
+                            const routeKey = routeId ?? routeNumber ?? index;
+                            const embeddedMiles = getRouteEmbeddedTotalMiles(route);
+                            const mappedMiles = routeId ? routeMilesByRouteId[String(routeId)] : null;
+                            const totalMiles = embeddedMiles ?? mappedMiles;
+                            const embeddedMinutes = getRouteEmbeddedTotalMinutes(route);
+                            const mappedMinutes = routeId ? routeMinutesByRouteId[String(routeId)] : null;
+                            const totalMinutes = embeddedMinutes ?? mappedMinutes;
 
                             return (
                               <tr key={routeKey}>
-                                <td className="whitespace-nowrap px-3 py-2">{formatValue(route.RouteId)}</td>
-                                <td className="whitespace-nowrap px-3 py-2">{formatValue(route.RouteNumber)}</td>
-                                <td className="whitespace-nowrap px-3 py-2">{formatValue(route.RouteDescription)}</td>
+                                <td className="whitespace-nowrap px-3 py-2">{formatValue(routeName)}</td>
+                                <td className="whitespace-nowrap px-3 py-2">
+                                  {totalMiles === null || totalMiles === undefined
+                                    ? '-'
+                                    : `${Number(totalMiles).toFixed(1)} mi`}
+                                </td>
+                                <td className="whitespace-nowrap px-3 py-2">
+                                  {totalMinutes === null || totalMinutes === undefined
+                                    ? '-'
+                                    : formatDurationMinutes(totalMinutes)}
+                                </td>
+                                <td className="whitespace-nowrap px-3 py-2">{getBusNumbersForRoute(viewDistrict, route)}</td>
                               </tr>
                             );
                           })
@@ -646,15 +1180,14 @@ export default function DistrictsPage() {
                       <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
                         <tr>
                           <th className="whitespace-nowrap px-3 py-2">Bus Number</th>
-                          <th className="whitespace-nowrap px-3 py-2">Bus Type ID</th>
-                          <th className="whitespace-nowrap px-3 py-2">Route Number</th>
-                          <th className="whitespace-nowrap px-3 py-2">Route Description</th>
+                          <th className="whitespace-nowrap px-3 py-2">Bus Type</th>
+                          <th className="whitespace-nowrap px-3 py-2">Assigned Route</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 text-slate-700">
                         {getDistrictBuses(viewDistrict).length === 0 ? (
                           <tr>
-                            <td className="px-3 py-3 text-center text-slate-500" colSpan={4}>No buses found.</td>
+                            <td className="px-3 py-3 text-center text-slate-500" colSpan={3}>No buses found.</td>
                           </tr>
                         ) : (
                           getDistrictBuses(viewDistrict).map((bus, index) => {
@@ -663,9 +1196,8 @@ export default function DistrictsPage() {
                             return (
                               <tr key={busKey}>
                                 <td className="whitespace-nowrap px-3 py-2">{formatValue(getObjectFieldValue(bus, 'BusNumber'))}</td>
-                                <td className="whitespace-nowrap px-3 py-2">{formatValue(getObjectFieldValue(bus, 'BusTypeId'))}</td>
-                                <td className="whitespace-nowrap px-3 py-2">{formatValue(getObjectFieldValue(bus, 'RouteNumber'))}</td>
-                                <td className="whitespace-nowrap px-3 py-2">{formatValue(getObjectFieldValue(bus, 'RouteDescription'))}</td>
+                                <td className="whitespace-nowrap px-3 py-2">{formatValue(getFriendlyBusTypeLabel(bus, busTypeLabelById))}</td>
+                                <td className="whitespace-nowrap px-3 py-2">{formatValue(getAssignedRouteLabel(viewDistrict, bus))}</td>
                               </tr>
                             );
                           })

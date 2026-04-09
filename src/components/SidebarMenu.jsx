@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 
 const menuItems = [
+  { label: 'Dashboard', path: '/dashboard' },
   { label: 'Users', path: '/users' },
   { label: 'Buses', path: '/buses' },
   { label: 'Chargers', path: '/chargers' },

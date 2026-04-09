@@ -129,6 +129,8 @@ function getSerializablePayload(formData) {
 
 export default function BusesPage() {
   const [buses, setBuses] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -138,6 +140,18 @@ export default function BusesPage() {
   const [formData, setFormData] = useState({});
   const [pendingDeleteBus, setPendingDeleteBus] = useState(null);
   const [viewBus, setViewBus] = useState(null);
+
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setError('');
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
 
   const loadBuses = async () => {
     setIsLoading(true);
@@ -249,6 +263,37 @@ export default function BusesPage() {
     }
   };
 
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+  const filteredBuses = normalizedSearch
+    ? buses.filter((bus) => ALL_COLUMNS.some((column) =>
+      String(formatCellValue(getBusFieldValue(bus, column.key))).toLowerCase().includes(normalizedSearch)
+    ))
+    : buses;
+  const sortedBuses = sortConfig.key
+    ? [...filteredBuses].sort((left, right) => {
+      const leftValue = String(formatCellValue(getBusFieldValue(left, sortConfig.key)) ?? '').toLowerCase();
+      const rightValue = String(formatCellValue(getBusFieldValue(right, sortConfig.key)) ?? '').toLowerCase();
+      const comparison = leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: 'base' });
+      return sortConfig.direction === 'asc' ? comparison : -comparison;
+    })
+    : filteredBuses;
+
+  const handleSort = (columnKey) => {
+    setSortConfig((previous) => {
+      if (previous.key === columnKey) {
+        return {
+          key: columnKey,
+          direction: previous.direction === 'asc' ? 'desc' : 'asc',
+        };
+      }
+
+      return {
+        key: columnKey,
+        direction: 'asc',
+      };
+    });
+  };
+
   return (
     <section className="mr-auto grid w-full max-w-[92rem] gap-4 px-4 pb-16 pt-8 sm:px-6 lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-4 lg:px-6 xl:px-8">
       <SidebarMenu />
@@ -275,12 +320,41 @@ export default function BusesPage() {
           <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
 
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search buses..."
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200 sm:flex-1"
+          />
+          <button
+            type="button"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => setSortConfig({ key: null, direction: 'asc' })}
+            disabled={!sortConfig.key}
+          >
+            Clear Sort
+          </button>
+        </div>
+
         <div className="mt-6 hidden w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white md:block">
           <table className="min-w-max w-full divide-y divide-slate-200 text-[11px]">
             <thead className="bg-slate-50 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600">
               <tr>
                 {TABLE_COLUMNS.map((column) => (
-                  <th key={column.key} className="whitespace-nowrap px-2 py-2 text-center">{column.label}</th>
+                  <th key={column.key} className="whitespace-nowrap px-2 py-2 text-center">
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center gap-1"
+                      onClick={() => handleSort(column.key)}
+                    >
+                      <span>{column.label}</span>
+                      {sortConfig.key === column.key && (
+                        <span className="text-[10px] text-slate-500 normal-case">{sortConfig.direction === 'asc' ? '(asc)' : '(desc)'}</span>
+                      )}
+                    </button>
+                  </th>
                 ))}
                 <th className="whitespace-nowrap px-2 py-2 text-center">Actions</th>
               </tr>
@@ -292,14 +366,14 @@ export default function BusesPage() {
                     Loading buses...
                   </td>
                 </tr>
-              ) : buses.length === 0 ? (
+              ) : sortedBuses.length === 0 ? (
                 <tr>
                   <td className="px-2 py-4 text-center text-xs text-slate-500" colSpan={TABLE_COLUMNS.length + 1}>
-                    No buses found.
+                    {searchTerm.trim() ? 'No buses match your search.' : 'No buses found.'}
                   </td>
                 </tr>
               ) : (
-                buses.map((bus, index) => {
+                sortedBuses.map((bus, index) => {
                   const rowId = getBusId(bus) ?? index;
 
                   return (
@@ -350,12 +424,12 @@ export default function BusesPage() {
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-5 text-center text-sm text-slate-500">
               Loading buses...
             </div>
-          ) : buses.length === 0 ? (
+          ) : sortedBuses.length === 0 ? (
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-5 text-center text-sm text-slate-500">
-              No buses found.
+              {searchTerm.trim() ? 'No buses match your search.' : 'No buses found.'}
             </div>
           ) : (
-            buses.map((bus, index) => {
+            sortedBuses.map((bus, index) => {
               const rowId = getBusId(bus) ?? index;
 
               return (
@@ -422,7 +496,7 @@ export default function BusesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2" noValidate>
               {BUS_FORM_FIELDS.map((field) => (
                 <label key={field.key} className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                   {field.label}

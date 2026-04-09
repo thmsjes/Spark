@@ -294,8 +294,16 @@ export async function fetchBuses() {
   return apiRequest({ url: '/Buses', method: 'GET', requireToken: true });
 }
 
-export async function fetchDistrictBuses() {
-  return apiRequest({ url: '/DistrictBuses', method: 'GET', requireToken: true });
+export async function fetchDistrictBuses(districtId) {
+  if (districtId === null || districtId === undefined || String(districtId).trim() === '') {
+    throw new Error('District ID is required to fetch district buses.');
+  }
+
+  return apiRequest({
+    url: `/DistrictBuses/${encodeURIComponent(districtId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
 }
 
 export async function fetchDistrictChargersByDistrictId(districtId) {
@@ -426,6 +434,14 @@ export async function fetchDistrictById(districtId) {
   return apiRequest({ url: `/Districts/${encodeURIComponent(districtId)}`, method: 'GET', requireToken: true });
 }
 
+export async function fetchDistrictStatusByDistrictId(districtId) {
+  return apiRequest({
+    url: `/Districts/statusByDistrict/${encodeURIComponent(districtId)}`,
+    method: 'GET',
+    requireToken: true,
+  });
+}
+
 export async function fetchRoutesByDistrictId(districtId) {
   return apiRequest({
     url: `/Routes/district/${encodeURIComponent(districtId)}`,
@@ -525,6 +541,10 @@ export async function updateDistrict(districtId, payload) {
 
 export async function deleteDistrict(districtId) {
   return apiRequest({ url: `/Districts/${encodeURIComponent(districtId)}`, method: 'DELETE', requireToken: true });
+}
+
+export async function updateDistrictStatus(payload) {
+  return apiRequest({ url: '/Districts/statusUpdate', method: 'POST', body: payload, requireToken: true });
 }
 
 export async function fetchUsers() {

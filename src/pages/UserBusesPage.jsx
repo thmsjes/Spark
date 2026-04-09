@@ -4,13 +4,18 @@ import {
   createDistrictBus,
   deleteDistrictBus,
   fetchBuses,
+  fetchDistrictById,
   fetchDistrictBusByBusNumberAndRouteId,
   fetchDistrictBuses,
+  fetchDistrictChargersByDistrictId,
   fetchRoutesByDistrictId,
   fetchUserById,
   getCurrentUserId,
   updateDistrictBus,
 } from '@/apiCalls';
+import { syncDistrictStatusUpdate } from '@/utils/districtStatusSync';
+import { dispatchSetupProgressChanged } from '@/utils/setupProgressEvents';
+import { buildSetupProgress } from '@/utils/userSetupProgress';
 
 function normalizeEntityResponse(response) {
   if (!response || typeof response !== 'object') {
@@ -216,6 +221,7 @@ export default function UserBusesPage() {
   const [modalMode, setModalMode] = useState('create');
   const [selectedKey, setSelectedKey] = useState(null);
   const [pendingDeleteRow, setPendingDeleteRow] = useState(null);
+  const [createBlockReason, setCreateBlockReason] = useState('');
   const [formData, setFormData] = useState({
     busNumber: '',
     routeNumber: '',
@@ -224,6 +230,19 @@ export default function UserBusesPage() {
     routeId: '',
     inServiceDate: '',
   });
+
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setError('');
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
+
   const routeOptions = buildRouteOptions(routes);
 
   const loadData = async () => {
@@ -246,9 +265,27 @@ export default function UserBusesPage() {
 
       setDistrictId(resolvedDistrictId);
 
-      const routesResponse = await fetchRoutesByDistrictId(resolvedDistrictId);
+      const [districtResponse, routesResponse, districtChargersResponse] = await Promise.all([
+        fetchDistrictById(resolvedDistrictId),
+        fetchRoutesByDistrictId(resolvedDistrictId),
+        fetchDistrictChargersByDistrictId(resolvedDistrictId),
+      ]);
+      const district = normalizeEntityResponse(districtResponse);
       const routeItems = normalizeCollectionResponse(routesResponse);
+      const chargerItems = normalizeCollectionResponse(districtChargersResponse);
       setRoutes(routeItems);
+
+      const setupProgress = buildSetupProgress({
+        district,
+        routeCount: routeItems.length,
+        busCount: 0,
+        chargerCount: chargerItems.length,
+      });
+      setCreateBlockReason(
+        setupProgress.busesUnlocked
+          ? ''
+          : `Add ${setupProgress.unmet.chargers} more charger${setupProgress.unmet.chargers === 1 ? '' : 's'} before adding buses.`
+      );
 
       try {
         const busTypeResponse = await fetchBuses();
@@ -268,7 +305,7 @@ export default function UserBusesPage() {
 
       let districtBusItems = [];
       try {
-        const districtBusesResponse = await fetchDistrictBuses();
+        const districtBusesResponse = await fetchDistrictBuses(resolvedDistrictId);
         districtBusItems = normalizeCollectionResponse(districtBusesResponse);
       } catch {
         districtBusItems = [];
@@ -321,6 +358,7 @@ export default function UserBusesPage() {
       setRows(filtered.map((bus) => buildBusRow(bus, routeNameByRouteId)));
     } catch (err) {
       setRows([]);
+      setCreateBlockReason('');
       setError(err.message || 'Unable to load buses right now.');
     } finally {
       setIsLoading(false);
@@ -332,6 +370,11 @@ export default function UserBusesPage() {
   }, []);
 
   const openCreateModal = () => {
+    if (createBlockReason) {
+      setError(createBlockReason);
+      return;
+    }
+
     setError('');
     setModalMode('create');
     setSelectedKey(null);
@@ -406,6 +449,8 @@ export default function UserBusesPage() {
       await deleteDistrictBus(pendingDeleteRow.busNumber, pendingDeleteRow.routeId);
       setPendingDeleteRow(null);
       await loadData();
+      dispatchSetupProgressChanged();
+      syncDistrictStatusUpdate(districtId, 'buses');
     } catch (err) {
       setError(err.message || 'Unable to delete bus right now.');
     } finally {
@@ -418,19 +463,26 @@ export default function UserBusesPage() {
     setError('');
 
     const busNumber = String(formData.busNumber ?? '').trim();
-    const selectedRoute = routes.find((route) => String(getRouteId(route)) === String(formData.routeId));
+    const routeIdRaw = String(formData.routeId ?? '').trim();
+    const selectedRoute = routes.find((route) => String(getRouteId(route)) === routeIdRaw);
     const routeNumber = selectedRoute
       ? String(getRouteId(selectedRoute) ?? '').trim()
       : String(formData.routeNumber ?? '').trim();
     const routeDescription = selectedRoute
       ? String(getRouteName(selectedRoute) ?? '').trim()
       : String(formData.routeDescription ?? '').trim();
-    const busTypeId = Number(formData.busTypeId);
-    const routeId = Number(formData.routeId);
+    const busTypeIdRaw = String(formData.busTypeId ?? '').trim();
+    const busTypeId = busTypeIdRaw ? Number(busTypeIdRaw) : NaN;
+    const routeId = routeIdRaw ? Number(routeIdRaw) : NaN;
     const inServiceDate = toIsoDateTime(formData.inServiceDate);
 
     if (!busNumber) {
       setError('Bus Number is required.');
+      return;
+    }
+
+    if (!routeIdRaw) {
+      setError('Route Name is required.');
       return;
     }
 
@@ -439,7 +491,12 @@ export default function UserBusesPage() {
       return;
     }
 
-    if (Number.isNaN(busTypeId)) {
+    if (!routeNumber) {
+      setError('Route Number is required.');
+      return;
+    }
+
+    if (!busTypeIdRaw || Number.isNaN(busTypeId)) {
       setError('Bus Type Id must be a valid number.');
       return;
     }
@@ -488,6 +545,8 @@ export default function UserBusesPage() {
       setIsModalOpen(false);
       setSelectedKey(null);
       await loadData();
+      dispatchSetupProgressChanged();
+      syncDistrictStatusUpdate(districtId, 'buses');
     } catch (err) {
       setError(err.message || 'Unable to save bus changes right now.');
     } finally {
@@ -510,13 +569,17 @@ export default function UserBusesPage() {
           type="button"
           className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(37,99,235,0.25)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={openCreateModal}
-          disabled={isLoading || isSubmitting}
+          disabled={isLoading || isSubmitting || Boolean(createBlockReason)}
         >
           Add Bus
         </button>
       </div>
 
-      {error && (
+      {createBlockReason && (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{createBlockReason}</p>
+      )}
+
+      {!isModalOpen && error && (
         <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}
 
@@ -598,7 +661,11 @@ export default function UserBusesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4">
+            {error && (
+              <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            )}
+
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4" noValidate>
               <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                 Bus Number
                 <input

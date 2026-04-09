@@ -52,7 +52,7 @@ export default function ContactModal({ onClose }) {
           <a href="mailto:test@test.com" className="contact-modal-email"> test@test.com</a>
         </p>
 
-        <form className="contact-modal-form" onSubmit={handleSubmit}>
+        <form className="contact-modal-form" onSubmit={handleSubmit} noValidate>
           <div className="contact-modal-fields">
             <label className="contact-modal-label" htmlFor="contact-email">
               Email

@@ -9,6 +9,7 @@ import BusesPage from '@/pages/BusesPage';
 import ChargersPage from '@/pages/ChargersPage';
 import DistrictsPage from '@/pages/DistrictsPage';
 import UserWorkspace from '@/pages/UserWorkspace';
+import UserDashboardPage from '@/pages/UserDashboardPage';
 import UserRoutesPage from '@/pages/UserRoutesPage';
 import UserBusesPage from '@/pages/UserBusesPage';
 import UserChargersPage from '@/pages/UserChargersPage';
@@ -172,6 +173,7 @@ function AppContent() {
     '/buses',
     '/chargers',
     '/districts',
+    '/workspace/dashboard',
     '/workspace/routes',
     '/workspace/buses',
     '/workspace/chargers',
@@ -184,6 +186,7 @@ function AppContent() {
     '/buses': 'Buses',
     '/chargers': 'Chargers',
     '/districts': 'Districts',
+    '/workspace/dashboard': 'Dashboard',
     '/workspace/routes': 'Routes',
     '/workspace/buses': 'Buses',
     '/workspace/chargers': 'Chargers',
@@ -248,7 +251,8 @@ function AppContent() {
               !isAuthenticated ? <Navigate to="/" replace /> : (isAdmin ? <Navigate to="/dashboard" replace /> : <UserWorkspace />)
             }
           >
-            <Route index element={<Navigate to="routes" replace />} />
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<UserDashboardPage />} />
             <Route path="routes" element={<UserRoutesPage />} />
             <Route path="buses" element={<UserBusesPage />} />
             <Route path="chargers" element={<UserChargersPage />} />

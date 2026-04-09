@@ -15,6 +15,8 @@ import {
   updateRoute,
   updateRouteDetail,
 } from '@/apiCalls';
+import { syncDistrictStatusUpdate } from '@/utils/districtStatusSync';
+import { dispatchSetupProgressChanged } from '@/utils/setupProgressEvents';
 
 function normalizeEntityResponse(response) {
   if (!response || typeof response !== 'object') {
@@ -150,6 +152,46 @@ function normalizeTimeInput(value) {
   return raw;
 }
 
+function isValidNormalizedTime(value) {
+  return /^\d{2}:\d{2}$/.test(String(value ?? '').trim());
+}
+
+function needsMeridiemSelection(value) {
+  if (!isValidNormalizedTime(value)) {
+    return false;
+  }
+
+  const hour = Number(String(value).slice(0, 2));
+  return hour >= 1 && hour <= 12;
+}
+
+function toMilitaryTime(value, meridiem) {
+  if (!isValidNormalizedTime(value)) {
+    return String(value ?? '').trim();
+  }
+
+  const [hourPart, minutePart] = String(value).split(':');
+  const rawHour = Number(hourPart);
+  const normalizedMeridiem = String(meridiem ?? '').trim().toUpperCase();
+
+  if (!['AM', 'PM'].includes(normalizedMeridiem)) {
+    return `${hourPart}:${minutePart}`;
+  }
+
+  if (rawHour < 1 || rawHour > 12) {
+    return `${hourPart}:${minutePart}`;
+  }
+
+  let convertedHour = rawHour;
+  if (normalizedMeridiem === 'AM') {
+    convertedHour = rawHour === 12 ? 0 : rawHour;
+  } else {
+    convertedHour = rawHour === 12 ? 12 : rawHour + 12;
+  }
+
+  return `${String(convertedHour).padStart(2, '0')}:${minutePart}`;
+}
+
 function normalizeRouteDetails(detailsResponse) {
   const details = normalizeCollectionResponse(detailsResponse);
   if (!Array.isArray(details)) {
@@ -267,6 +309,8 @@ export default function UserRoutesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [detailError, setDetailError] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [viewRoute, setViewRoute] = useState(null);
@@ -293,6 +337,24 @@ export default function UserRoutesPage() {
     chargerId: '',
     chargerType: '',
   });
+  const [isMeridiemModalOpen, setIsMeridiemModalOpen] = useState(false);
+  const [pendingDetailEntry, setPendingDetailEntry] = useState(null);
+  const [meridiemSelection, setMeridiemSelection] = useState({ start: 'AM', end: 'AM' });
+  const [isEditMeridiemModalOpen, setIsEditMeridiemModalOpen] = useState(false);
+  const [pendingEditTime, setPendingEditTime] = useState(null);
+  const [editMeridiemValue, setEditMeridiemValue] = useState('AM');
+
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setError('');
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
 
   const loadRoutes = async () => {
     setIsLoading(true);
@@ -394,6 +456,7 @@ export default function UserRoutesPage() {
 
   const openCreateModal = () => {
     setError('');
+    setCreateError('');
     setFormData({
       routeName: '',
       busId: '',
@@ -415,11 +478,13 @@ export default function UserRoutesPage() {
     if (isSubmitting) {
       return;
     }
+    setCreateError('');
     setIsDetailsModalOpen(false);
     setIsCreateModalOpen(false);
   };
 
   const openDetailsModal = () => {
+    setDetailError('');
     setDetailForm({
       startTime: '',
       endTime: '',
@@ -435,38 +500,11 @@ export default function UserRoutesPage() {
     if (isSubmitting) {
       return;
     }
+    setDetailError('');
     setIsDetailsModalOpen(false);
   };
 
-  const handleAddDetail = (event) => {
-    event.preventDefault();
-
-    const startTime = toTimeSpanString(detailForm.startTime);
-    const endTime = toTimeSpanString(detailForm.endTime);
-    const milesValue = Number(detailForm.miles);
-
-    if (!startTime || !endTime) {
-      setError('Start Time and End Time are required for route details.');
-      return;
-    }
-
-    if (!/^\d{2}:\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}:\d{2}$/.test(endTime)) {
-      setError('Start Time and End Time must be valid times in HH:mm format.');
-      return;
-    }
-
-    if (Number.isNaN(milesValue)) {
-      setError('Miles must be a valid number.');
-      return;
-    }
-
-    if (detailForm.chargerAvailable && !String(detailForm.chargerId).trim()) {
-      setError('Charger Type is required when charger is available.');
-      return;
-    }
-
-    const selectedChargerTypeLabel = String(detailForm.chargerType || '').trim();
-
+  const applyDetailEntry = ({ startTime, endTime, milesValue, chargerAvailable, chargerId, chargerType }) => {
     setError('');
     setFormData((previous) => ({
       ...previous,
@@ -476,15 +514,117 @@ export default function UserRoutesPage() {
           startTime,
           endTime,
           miles: milesValue,
-          chargerAvailable: detailForm.chargerAvailable,
-          chargerId: detailForm.chargerAvailable ? String(detailForm.chargerId) : '',
-          chargerType: detailForm.chargerAvailable && selectedChargerTypeLabel
-            ? String(selectedChargerTypeLabel)
+          chargerAvailable,
+          chargerId: chargerAvailable ? String(chargerId) : '',
+          chargerType: chargerAvailable && String(chargerType || '').trim()
+            ? String(chargerType)
             : '',
         },
       ],
     }));
     setIsDetailsModalOpen(false);
+  };
+
+  const closeMeridiemModal = () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    setIsMeridiemModalOpen(false);
+    setPendingDetailEntry(null);
+    setMeridiemSelection({ start: 'AM', end: 'AM' });
+  };
+
+  const confirmMeridiemSelection = () => {
+    if (!pendingDetailEntry) {
+      closeMeridiemModal();
+      return;
+    }
+
+    const start24 = pendingDetailEntry.startNeedsMeridiem
+      ? toMilitaryTime(pendingDetailEntry.startTimeRaw, meridiemSelection.start)
+      : pendingDetailEntry.startTimeRaw;
+    const end24 = pendingDetailEntry.endNeedsMeridiem
+      ? toMilitaryTime(pendingDetailEntry.endTimeRaw, meridiemSelection.end)
+      : pendingDetailEntry.endTimeRaw;
+
+    const startTime = toTimeSpanString(start24);
+    const endTime = toTimeSpanString(end24);
+
+    applyDetailEntry({
+      startTime,
+      endTime,
+      milesValue: pendingDetailEntry.milesValue,
+      chargerAvailable: pendingDetailEntry.chargerAvailable,
+      chargerId: pendingDetailEntry.chargerId,
+      chargerType: pendingDetailEntry.chargerType,
+    });
+
+    closeMeridiemModal();
+  };
+
+  const handleAddDetail = (event) => {
+    event.preventDefault();
+
+    const normalizedStart = normalizeTimeInput(detailForm.startTime);
+    const normalizedEnd = normalizeTimeInput(detailForm.endTime);
+    const startNeedsMeridiem = needsMeridiemSelection(normalizedStart);
+    const endNeedsMeridiem = needsMeridiemSelection(normalizedEnd);
+
+    const startTime = toTimeSpanString(normalizedStart);
+    const endTime = toTimeSpanString(normalizedEnd);
+    const milesValue = Number(detailForm.miles);
+
+    if (!startTime || !endTime) {
+      setDetailError('Start Time and End Time are required for route details.');
+      return;
+    }
+
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}:\d{2}$/.test(endTime)) {
+      setDetailError('Start Time and End Time must be valid times in HH:mm format.');
+      return;
+    }
+
+    if (Number.isNaN(milesValue)) {
+      setDetailError('Miles must be a valid number.');
+      return;
+    }
+
+    if (detailForm.chargerAvailable && !String(detailForm.chargerId).trim()) {
+      setDetailError('Charger Type is required when charger is available.');
+      return;
+    }
+
+    const selectedChargerTypeLabel = String(detailForm.chargerType || '').trim();
+
+    if (startNeedsMeridiem || endNeedsMeridiem) {
+      setPendingDetailEntry({
+        startTimeRaw: normalizedStart,
+        endTimeRaw: normalizedEnd,
+        startNeedsMeridiem,
+        endNeedsMeridiem,
+        milesValue,
+        chargerAvailable: detailForm.chargerAvailable,
+        chargerId: detailForm.chargerId,
+        chargerType: detailForm.chargerAvailable && selectedChargerTypeLabel
+          ? String(selectedChargerTypeLabel)
+          : '',
+      });
+      setMeridiemSelection({ start: 'AM', end: 'AM' });
+      setIsMeridiemModalOpen(true);
+      return;
+    }
+
+    applyDetailEntry({
+      startTime,
+      endTime,
+      milesValue,
+      chargerAvailable: detailForm.chargerAvailable,
+      chargerId: detailForm.chargerId,
+      chargerType: detailForm.chargerAvailable && selectedChargerTypeLabel
+        ? String(selectedChargerTypeLabel)
+        : '',
+    });
   };
 
   const handleRemoveDetail = (indexToRemove) => {
@@ -496,22 +636,23 @@ export default function UserRoutesPage() {
 
   const handleCreateRoute = async (event) => {
     event.preventDefault();
-    setError('');
+    setCreateError('');
 
     if (!districtId) {
-      setError('District is not loaded yet. Please try again in a moment.');
+      setCreateError('District is not loaded yet. Please try again in a moment.');
       return;
     }
 
     const routeName = formData.routeName.trim();
     if (!routeName) {
-      setError('Route name is required.');
+      setCreateError('Route name is required.');
       return;
     }
 
-    const busId = Number(formData.busId);
-    if (Number.isNaN(busId)) {
-      setError('Bus number must be a valid number.');
+    const busIdRaw = String(formData.busId ?? '').trim();
+    const busId = busIdRaw ? Number(busIdRaw) : null;
+    if (busIdRaw && Number.isNaN(busId)) {
+      setCreateError('Bus number must be a valid number.');
       return;
     }
 
@@ -520,13 +661,16 @@ export default function UserRoutesPage() {
       const routePayload = {
         routeName,
         RouteName: routeName,
-        busId,
-        BusId: busId,
         districtId: Number(districtId),
         DistrictId: Number(districtId),
         routeDetails: [],
         RouteDetails: [],
       };
+
+      if (busId !== null) {
+        routePayload.busId = busId;
+        routePayload.BusId = busId;
+      }
 
       const createdRouteResponse = await createRoute(routePayload);
       const createdRouteId = getCreatedRouteId(createdRouteResponse);
@@ -569,8 +713,10 @@ export default function UserRoutesPage() {
       setIsCreateModalOpen(false);
       setIsDetailsModalOpen(false);
       await loadRoutes();
+      dispatchSetupProgressChanged();
+      syncDistrictStatusUpdate(districtId, 'routes');
     } catch (err) {
-      setError(err.message || 'Unable to add route right now.');
+      setCreateError(err.message || 'Unable to add route right now.');
     } finally {
       setIsSubmitting(false);
     }
@@ -728,6 +874,33 @@ export default function UserRoutesPage() {
     });
   };
 
+  const handleEditTimeBlur = (index, field, rawValue) => {
+    const normalized = normalizeTimeInput(rawValue);
+    if (needsMeridiemSelection(normalized)) {
+      setPendingEditTime({ index, field, rawValue: normalized });
+      setEditMeridiemValue('AM');
+      setIsEditMeridiemModalOpen(true);
+    } else {
+      updateEditDetailField(index, field, normalized);
+    }
+  };
+
+  const closeEditMeridiemModal = () => {
+    setIsEditMeridiemModalOpen(false);
+    setPendingEditTime(null);
+    setEditMeridiemValue('AM');
+  };
+
+  const confirmEditMeridiem = () => {
+    if (!pendingEditTime) {
+      closeEditMeridiemModal();
+      return;
+    }
+    const converted = toMilitaryTime(pendingEditTime.rawValue, editMeridiemValue);
+    updateEditDetailField(pendingEditTime.index, pendingEditTime.field, converted);
+    closeEditMeridiemModal();
+  };
+
   const handleUpdateRoute = async (event) => {
     event.preventDefault();
     setError('');
@@ -748,22 +921,28 @@ export default function UserRoutesPage() {
       return;
     }
 
-    const busId = Number(editFormData.busId);
-    if (Number.isNaN(busId)) {
+    const busIdRaw = String(editFormData.busId ?? '').trim();
+    const busId = busIdRaw ? Number(busIdRaw) : null;
+    if (busIdRaw && Number.isNaN(busId)) {
       setError('Bus number must be a valid number.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await updateRoute(editingRouteId, {
+      const routePayload = {
         routeName,
         RouteName: routeName,
-        busId,
-        BusId: busId,
         districtId: Number(districtId),
         DistrictId: Number(districtId),
-      });
+      };
+
+      if (busId !== null) {
+        routePayload.busId = busId;
+        routePayload.BusId = busId;
+      }
+
+      await updateRoute(editingRouteId, routePayload);
 
       const activeDetails = editFormData.routeDetails.filter((detail) => !detail.isDeleted);
       const invalidDetail = activeDetails.find((detail) => {
@@ -849,6 +1028,8 @@ export default function UserRoutesPage() {
 
       closeEditModal();
       await loadRoutes();
+      dispatchSetupProgressChanged();
+      syncDistrictStatusUpdate(districtId, 'routes');
     } catch (err) {
       setError(err.message || 'Unable to update route right now.');
     } finally {
@@ -888,6 +1069,8 @@ export default function UserRoutesPage() {
       await deleteRoute(routeId);
       setPendingDeleteRoute(null);
       await loadRoutes();
+      dispatchSetupProgressChanged();
+      syncDistrictStatusUpdate(districtId, 'routes');
     } catch (err) {
       setError(err.message || 'Unable to delete route right now.');
     } finally {
@@ -1046,7 +1229,7 @@ export default function UserRoutesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateRoute} className="grid grid-cols-1 gap-4">
+            <form onSubmit={handleCreateRoute} className="grid grid-cols-1 gap-4" noValidate>
               <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                 Route Name
                 <input
@@ -1065,7 +1248,6 @@ export default function UserRoutesPage() {
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   value={formData.busId}
                   onChange={(event) => setFormData((previous) => ({ ...previous, busId: event.target.value }))}
-                  required
                 />
               </label>
 
@@ -1138,6 +1320,10 @@ export default function UserRoutesPage() {
                   {isSubmitting ? 'Saving...' : 'Create Route'}
                 </button>
               </div>
+
+              {createError && (
+                <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{createError}</p>
+              )}
             </form>
           </div>
         </div>
@@ -1161,7 +1347,7 @@ export default function UserRoutesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleAddDetail} className="grid grid-cols-1 gap-4">
+            <form onSubmit={handleAddDetail} className="grid grid-cols-1 gap-4" noValidate>
               <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                 Start Time
                 <input
@@ -1258,6 +1444,10 @@ export default function UserRoutesPage() {
                 </label>
               )}
 
+              {detailError && (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{detailError}</p>
+              )}
+
               <div className="mt-2 flex justify-end gap-3">
                 <button
                   type="button"
@@ -1276,6 +1466,146 @@ export default function UserRoutesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ), document.body)}
+
+      {isMeridiemModalOpen && createPortal((
+        <div className="app-modal-overlay app-modal-overlay--center" role="dialog" aria-modal="true" style={{ zIndex: 145 }}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Routes</p>
+                <h2 className="mt-2 text-2xl font-bold text-slate-900">Confirm Time Format</h2>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={closeMeridiemModal}
+                disabled={isSubmitting}
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600">
+              Select AM or PM for each time. The API will receive 24-hour (military) time.
+            </p>
+
+            <div className="mt-4 grid grid-cols-1 gap-4">
+              {pendingDetailEntry?.startNeedsMeridiem && (
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+                  Start Time ({pendingDetailEntry.startTimeRaw})
+                  <select
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    value={meridiemSelection.start}
+                    onChange={(event) => setMeridiemSelection((previous) => ({ ...previous, start: event.target.value }))}
+                  >
+                    <option value="AM">AM</option>
+                    <option value="PM">PM</option>
+                  </select>
+                </label>
+              )}
+
+              {pendingDetailEntry?.endNeedsMeridiem && (
+                <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+                  End Time ({pendingDetailEntry.endTimeRaw})
+                  <select
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    value={meridiemSelection.end}
+                    onChange={(event) => setMeridiemSelection((previous) => ({ ...previous, end: event.target.value }))}
+                  >
+                    <option value="AM">AM</option>
+                    <option value="PM">PM</option>
+                  </select>
+                </label>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={closeMeridiemModal}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={confirmMeridiemSelection}
+                disabled={isSubmitting}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      ), document.body)}
+
+      {isEditMeridiemModalOpen && createPortal((
+        <div className="app-modal-overlay app-modal-overlay--center" role="dialog" aria-modal="true" style={{ zIndex: 155 }}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Routes</p>
+                <h2 className="mt-2 text-2xl font-bold text-slate-900">Confirm Time Format</h2>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={closeEditMeridiemModal}
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600 mb-4">
+              Is <span className="font-semibold">{pendingEditTime?.rawValue}</span> AM or PM?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                className={`flex-1 rounded-lg border px-4 py-3 text-sm font-semibold transition ${
+                  editMeridiemValue === 'AM'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+                onClick={() => setEditMeridiemValue('AM')}
+              >
+                AM
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-lg border px-4 py-3 text-sm font-semibold transition ${
+                  editMeridiemValue === 'PM'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+                onClick={() => setEditMeridiemValue('PM')}
+              >
+                PM
+              </button>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={closeEditMeridiemModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                onClick={confirmEditMeridiem}
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       ), document.body)}
@@ -1372,7 +1702,7 @@ export default function UserRoutesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleUpdateRoute} className="grid grid-cols-1 gap-4">
+            <form onSubmit={handleUpdateRoute} className="grid grid-cols-1 gap-4" noValidate>
               {isEditLoading ? (
                 <p className="text-sm text-slate-600">Loading route details...</p>
               ) : (
@@ -1395,7 +1725,6 @@ export default function UserRoutesPage() {
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   value={editFormData.busId}
                   onChange={(event) => setEditFormData((previous) => ({ ...previous, busId: event.target.value }))}
-                  required
                 />
               </label>
 
@@ -1435,7 +1764,7 @@ export default function UserRoutesPage() {
                                 className="rounded border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
                                   value={detail.startTime}
                                 onChange={(event) => updateEditDetailField(index, 'startTime', event.target.value)}
-                                  onBlur={(event) => updateEditDetailField(index, 'startTime', normalizeTimeInput(event.target.value))}
+                                  onBlur={(event) => handleEditTimeBlur(index, 'startTime', event.target.value)}
                                 required
                               />
                             </label>
@@ -1449,7 +1778,7 @@ export default function UserRoutesPage() {
                                 className="rounded border border-slate-300 px-3 py-2 text-sm font-normal text-slate-800"
                                   value={detail.endTime}
                                 onChange={(event) => updateEditDetailField(index, 'endTime', event.target.value)}
-                                  onBlur={(event) => updateEditDetailField(index, 'endTime', normalizeTimeInput(event.target.value))}
+                                  onBlur={(event) => handleEditTimeBlur(index, 'endTime', event.target.value)}
                                 required
                               />
                             </label>

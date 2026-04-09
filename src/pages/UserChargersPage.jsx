@@ -4,11 +4,17 @@ import {
   createDistrictCharger,
   deleteDistrictCharger,
   fetchChargers,
+  fetchDistrictById,
+  fetchDistrictBuses,
   fetchDistrictChargersByDistrictId,
+  fetchRoutesByDistrictId,
   fetchUserById,
   getCurrentUserId,
   updateDistrictCharger,
 } from '@/apiCalls';
+import { syncDistrictStatusUpdate } from '@/utils/districtStatusSync';
+import { dispatchSetupProgressChanged } from '@/utils/setupProgressEvents';
+import { buildSetupProgress, countDistrictBuses } from '@/utils/userSetupProgress';
 
 const TABLE_COLUMNS = [
   { key: 'ChargerType', label: 'Charger Type' },
@@ -131,7 +137,20 @@ export default function UserChargersPage() {
   const [selectedRow, setSelectedRow] = useState(null);
   const [viewRow, setViewRow] = useState(null);
   const [pendingDeleteRow, setPendingDeleteRow] = useState(null);
+  const [createBlockReason, setCreateBlockReason] = useState('');
   const [formData, setFormData] = useState(buildDefaultFormData());
+
+  useEffect(() => {
+    if (!error) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setError('');
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [error]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -152,14 +171,35 @@ export default function UserChargersPage() {
 
       setDistrictId(resolvedDistrictId);
 
-      const [districtChargersResponse, chargersResponse] = await Promise.all([
+      const [districtResponse, routesResponse, districtBusesResponse, districtChargersResponse, chargersResponse] = await Promise.all([
+        fetchDistrictById(resolvedDistrictId),
+        fetchRoutesByDistrictId(resolvedDistrictId),
+        fetchDistrictBuses(resolvedDistrictId),
         fetchDistrictChargersByDistrictId(resolvedDistrictId),
         fetchChargers(),
       ]);
 
+      const district = normalizeEntityResponse(districtResponse);
+      const routes = normalizeCollectionResponse(routesResponse);
+      const buses = normalizeCollectionResponse(districtBusesResponse);
+      const districtBusCount = countDistrictBuses(buses, routes);
+
       setRows(normalizeCollectionResponse(districtChargersResponse));
       setChargerOptions(normalizeCollectionResponse(chargersResponse));
+
+      const progress = buildSetupProgress({
+        district,
+        routeCount: routes.length,
+        busCount: districtBusCount,
+        chargerCount: normalizeCollectionResponse(districtChargersResponse).length,
+      });
+      setCreateBlockReason(
+        progress.chargersUnlocked
+          ? ''
+          : `Add ${progress.unmet.routes} more route${progress.unmet.routes === 1 ? '' : 's'} before adding chargers.`
+      );
     } catch (err) {
+      setCreateBlockReason('');
       setError(err.message || 'Unable to load district chargers right now.');
     } finally {
       setIsLoading(false);
@@ -171,6 +211,11 @@ export default function UserChargersPage() {
   }, []);
 
   const openCreateModal = () => {
+    if (createBlockReason) {
+      setError(createBlockReason);
+      return;
+    }
+
     setError('');
     setModalMode('create');
     setSelectedRow(null);
@@ -274,6 +319,8 @@ export default function UserChargersPage() {
 
       closeModal();
       await loadData();
+      dispatchSetupProgressChanged();
+      syncDistrictStatusUpdate(districtId, 'chargers');
     } catch (err) {
       setError(err.message || 'Unable to save district charger changes right now.');
     } finally {
@@ -300,6 +347,8 @@ export default function UserChargersPage() {
       await deleteDistrictCharger(identifiers);
       setPendingDeleteRow(null);
       await loadData();
+      dispatchSetupProgressChanged();
+      syncDistrictStatusUpdate(districtId, 'chargers');
     } catch (err) {
       setError(err.message || 'Unable to delete district charger right now.');
     } finally {
@@ -330,11 +379,15 @@ export default function UserChargersPage() {
           type="button"
           className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(37,99,235,0.25)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:self-start"
           onClick={openCreateModal}
-          disabled={isLoading || !districtId}
+          disabled={isLoading || !districtId || Boolean(createBlockReason)}
         >
           Add Charger
         </button>
       </div>
+
+      {createBlockReason && (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{createBlockReason}</p>
+      )}
 
       {error && (
         <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
@@ -430,7 +483,7 @@ export default function UserChargersPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4">
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4" noValidate>
               <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
                 Charger
                 <select

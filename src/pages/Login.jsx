@@ -22,7 +22,7 @@ export default function Login() {
           Sign in to manage routes, charging sessions, and fleet performance.
         </p>
 
-        <form className="login-form" onSubmit={(event) => event.preventDefault()}>
+        <form className="login-form" onSubmit={(event) => event.preventDefault()} noValidate>
           <label className="login-label" htmlFor="email">
             Email
           </label>

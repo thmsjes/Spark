@@ -34,7 +34,7 @@ export default function LoginModal({ onClose, onSuccess }) {
       setStatus({ type: 'success', message: 'Login successful. Redirecting...' });
       if (onSuccess) onSuccess(auth);
       onClose();
-      navigate(isAdmin ? '/dashboard' : '/workspace/routes');
+      navigate(isAdmin ? '/dashboard' : '/workspace/dashboard');
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Login failed. Please try again.' });
     } finally {
@@ -65,7 +65,7 @@ export default function LoginModal({ onClose, onSuccess }) {
           Sign in to manage routes, charging sessions, and fleet performance.
         </p>
 
-        <form className="login-modal-form" onSubmit={handleSubmit}>
+        <form className="login-modal-form" onSubmit={handleSubmit} noValidate>
           <label className="login-modal-label" htmlFor="modal-email">
             Email
           </label>

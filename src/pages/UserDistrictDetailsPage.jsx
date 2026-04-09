@@ -39,12 +39,184 @@ function formatFieldLabel(key) {
 
 function shouldHideField(key) {
   const normalized = String(key).toLowerCase();
-  return normalized === 'id' || normalized === 'districtid' || normalized === 'users';
+  return normalized === 'id'
+    || normalized === 'districtid'
+    || normalized === 'users'
+    || normalized === 'buses'
+    || normalized === 'districtbuses'
+    || normalized === 'busassignments'
+    || normalized === 'routes'
+    || normalized === 'districtroutes';
 }
 
 function getUsersFromDistrict(district) {
-  const users = getFieldValue(district, 'Users');
+  const users = getFieldValue(district, 'Users') ?? getFieldValue(district, 'DistrictUsers');
   return Array.isArray(users) ? users : [];
+}
+
+function getBusesFromDistrict(district) {
+  const buses = getFieldValue(district, 'Buses')
+    ?? getFieldValue(district, 'DistrictBuses')
+    ?? getFieldValue(district, 'BusAssignments');
+
+  return Array.isArray(buses) ? buses : [];
+}
+
+function getRoutesFromDistrict(district) {
+  const directRoutes = getFieldValue(district, 'Routes') ?? getFieldValue(district, 'DistrictRoutes');
+  if (Array.isArray(directRoutes) && directRoutes.length > 0) {
+    return directRoutes;
+  }
+
+  const buses = getBusesFromDistrict(district);
+  const routeMap = new Map();
+
+  buses.forEach((bus, index) => {
+    const routeId = getFieldValue(bus, 'RouteId');
+    const routeNumber = getFieldValue(bus, 'RouteNumber') ?? getFieldValue(bus, 'RouteNo');
+    const routeName = getFieldValue(bus, 'RouteDescription') ?? getFieldValue(bus, 'RouteName');
+
+    if (routeId === null && routeNumber === null && !routeName) {
+      return;
+    }
+
+    const routeKey = String(routeId ?? routeNumber ?? `route-${index}`);
+    if (!routeMap.has(routeKey)) {
+      routeMap.set(routeKey, {
+        RouteId: routeId,
+        RouteNumber: routeNumber,
+        RouteName: routeName,
+      });
+    }
+  });
+
+  return Array.from(routeMap.values());
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
+function formatDurationMinutes(totalMinutes) {
+  const rounded = Math.round(Number(totalMinutes) || 0);
+  const hours = Math.floor(rounded / 60);
+  const minutes = rounded % 60;
+
+  if (hours === 0) {
+    return `${minutes}m`;
+  }
+
+  return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+}
+
+function parseTimeToMinutes(value) {
+  const raw = String(value ?? '').trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3] ?? 0);
+
+  if (
+    Number.isNaN(hours)
+    || Number.isNaN(minutes)
+    || Number.isNaN(seconds)
+    || hours < 0
+    || hours > 23
+    || minutes < 0
+    || minutes > 59
+    || seconds < 0
+    || seconds > 59
+  ) {
+    return null;
+  }
+
+  return (hours * 60) + minutes + (seconds / 60);
+}
+
+function getRouteMetrics(route) {
+  const details = getFieldValue(route, 'RouteDetails') ?? getFieldValue(route, 'Details');
+  if (!Array.isArray(details) || details.length === 0) {
+    return { miles: null, minutes: null };
+  }
+
+  const miles = details.reduce((sum, detail) => {
+    const next = Number(getFieldValue(detail, 'Miles') ?? 0);
+    return Number.isNaN(next) ? sum : sum + next;
+  }, 0);
+
+  const minutes = details.reduce((sum, detail) => {
+    const start = parseTimeToMinutes(getFieldValue(detail, 'StartTime') ?? getFieldValue(detail, 'startTime'));
+    const end = parseTimeToMinutes(getFieldValue(detail, 'EndTime') ?? getFieldValue(detail, 'endTime'));
+
+    if (start !== null && end !== null) {
+      const delta = end >= start ? end - start : (24 * 60) - start + end;
+      return sum + delta;
+    }
+
+    const travelTime = Number(getFieldValue(detail, 'TravelTimeMinutes') ?? getFieldValue(detail, 'travelTimeMinutes') ?? 0);
+    if (Number.isNaN(travelTime) || travelTime < 0) {
+      return sum;
+    }
+
+    return sum + travelTime;
+  }, 0);
+
+  return {
+    miles,
+    minutes,
+  };
+}
+
+function getBusTypeLabel(bus) {
+  const vehicleOem = String(getFieldValue(bus, 'VehicleOem') ?? '').trim();
+  const model = String(getFieldValue(bus, 'Model') ?? '').trim();
+  const studentCapacity = String(getFieldValue(bus, 'StudentCapacity') ?? '').trim();
+  const parts = [vehicleOem, model, studentCapacity].filter(Boolean);
+  if (parts.length > 0) {
+    return parts.join(' / ');
+  }
+
+  const typeName = String(getFieldValue(bus, 'BusTypeName') ?? getFieldValue(bus, 'Type') ?? '').trim();
+  if (typeName) {
+    return typeName;
+  }
+
+  const typeId = getFieldValue(bus, 'BusTypeId') ?? getFieldValue(bus, 'TypeId');
+  if (typeId === null || typeId === undefined || String(typeId).trim() === '') {
+    return '-';
+  }
+
+  return `Type ${String(typeId)}`;
+}
+
+function getAssignedRouteLabel(bus) {
+  const routeName = getFieldValue(bus, 'RouteDescription') ?? getFieldValue(bus, 'RouteName');
+  if (typeof routeName === 'string' && routeName.trim()) {
+    return routeName.trim();
+  }
+
+  const routeNumber = getFieldValue(bus, 'RouteNumber') ?? getFieldValue(bus, 'RouteNo');
+  if (routeNumber === null || routeNumber === undefined || String(routeNumber).trim() === '') {
+    return '-';
+  }
+
+  return `Route ${String(routeNumber)}`;
 }
 
 function getUserDisplayName(user) {
@@ -164,6 +336,84 @@ export default function UserDistrictDetailsPage() {
                         <td className="px-3 py-2">{getUserDisplayName(user)}</td>
                       </tr>
                     ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Routes</p>
+            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th className="whitespace-nowrap px-3 py-2">Route</th>
+                    <th className="whitespace-nowrap px-3 py-2">Total Miles</th>
+                    <th className="whitespace-nowrap px-3 py-2">Total Duration</th>
+                    <th className="whitespace-nowrap px-3 py-2">Bus Number Assigned</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white text-slate-700">
+                  {getRoutesFromDistrict(district).length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-3 text-slate-500" colSpan={4}>No routes found for this district.</td>
+                    </tr>
+                  ) : (
+                    getRoutesFromDistrict(district).map((route, index) => {
+                      const routeName = getFieldValue(route, 'RouteName') ?? getFieldValue(route, 'RouteDescription');
+                      const routeNumber = getFieldValue(route, 'RouteNumber') ?? getFieldValue(route, 'RouteNo');
+                      const routeBus = getFieldValue(route, 'BusId') ?? getFieldValue(route, 'BusNumber') ?? getFieldValue(route, 'busId');
+                      const metrics = getRouteMetrics(route);
+                      const routeKey = getFieldValue(route, 'RouteId') ?? getFieldValue(route, 'Id') ?? routeNumber ?? index;
+
+                      return (
+                        <tr key={`district-route-${routeKey}`}>
+                          <td className="px-3 py-2">{formatValue(routeName || routeNumber)}</td>
+                          <td className="px-3 py-2">
+                            {metrics.miles === null || metrics.miles === undefined ? '-' : `${metrics.miles.toFixed(1)} mi`}
+                          </td>
+                          <td className="px-3 py-2">
+                            {metrics.minutes === null || metrics.minutes === undefined ? '-' : formatDurationMinutes(metrics.minutes)}
+                          </td>
+                          <td className="px-3 py-2">{formatValue(routeBus)}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Buses</p>
+            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th className="whitespace-nowrap px-3 py-2">Bus Number</th>
+                    <th className="whitespace-nowrap px-3 py-2">Bus Type</th>
+                    <th className="whitespace-nowrap px-3 py-2">Assigned Route</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white text-slate-700">
+                  {getBusesFromDistrict(district).length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-3 text-slate-500" colSpan={3}>No buses found for this district.</td>
+                    </tr>
+                  ) : (
+                    getBusesFromDistrict(district).map((bus, index) => {
+                      const busKey = getFieldValue(bus, 'BusNumber') ?? getFieldValue(bus, 'Id') ?? index;
+
+                      return (
+                        <tr key={`district-bus-${busKey}`}>
+                          <td className="px-3 py-2">{formatValue(getFieldValue(bus, 'BusNumber'))}</td>
+                          <td className="px-3 py-2">{getBusTypeLabel(bus)}</td>
+                          <td className="px-3 py-2">{getAssignedRouteLabel(bus)}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
