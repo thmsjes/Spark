@@ -8,6 +8,8 @@ import UsersPage from '@/pages/UsersPage';
 import BusesPage from '@/pages/BusesPage';
 import ChargersPage from '@/pages/ChargersPage';
 import DistrictsPage from '@/pages/DistrictsPage';
+import BaseSettingsPage from '@/pages/BaseSettingsPage';
+import ReportsPage from '@/pages/ReportsPage';
 import UserWorkspace from '@/pages/UserWorkspace';
 import UserDashboardPage from '@/pages/UserDashboardPage';
 import UserRoutesPage from '@/pages/UserRoutesPage';
@@ -173,6 +175,8 @@ function AppContent() {
     '/buses',
     '/chargers',
     '/districts',
+    '/base-settings',
+    '/reports',
     '/workspace/dashboard',
     '/workspace/routes',
     '/workspace/buses',
@@ -186,6 +190,8 @@ function AppContent() {
     '/buses': 'Buses',
     '/chargers': 'Chargers',
     '/districts': 'Districts',
+    '/base-settings': 'Base Settings',
+    '/reports': 'Reports',
     '/workspace/dashboard': 'Dashboard',
     '/workspace/routes': 'Routes',
     '/workspace/buses': 'Buses',
@@ -243,6 +249,18 @@ function AppContent() {
             path="/districts"
             element={
               !isAuthenticated ? <Navigate to="/" replace /> : <DistrictsPage />
+            }
+          />
+          <Route
+            path="/base-settings"
+            element={
+              !isAuthenticated ? <Navigate to="/" replace /> : <BaseSettingsPage />
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              !isAuthenticated ? <Navigate to="/" replace /> : <ReportsPage />
             }
           />
           <Route

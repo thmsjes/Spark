@@ -575,3 +575,34 @@ export async function updateUser(userId, payload) {
 export async function deleteUser(userId) {
   return apiRequest({ url: `/Users/${encodeURIComponent(userId)}`, method: 'DELETE', requireToken: true });
 }
+
+export async function fetchBaseSettings() {
+  return apiRequest({ url: '/BaseSettings', method: 'GET', requireToken: true });
+}
+
+export async function createBaseSetting(payload) {
+  return apiRequest({ url: '/BaseSettings', method: 'POST', body: payload, requireToken: true });
+}
+
+export async function updateBaseSetting(id, payload) {
+  return apiRequest({
+    url: `/BaseSettings/${encodeURIComponent(id)}`,
+    method: 'PUT',
+    body: payload,
+    requireToken: true,
+  });
+}
+
+export async function deleteBaseSetting(id) {
+  return apiRequest({ url: `/api/BaseSettings/${encodeURIComponent(id)}`, method: 'DELETE', requireToken: true });
+}
+
+export async function runInitialRouteCalculation(districtId) {
+  return apiRequest({ url: '/RouteReporting/InitialRouteCalculation', method: 'POST', body: { districtId }, requireToken: true });
+}
+
+export const fetchOptimizedMatchups = async (districtId) => {
+  const response = await fetch(`/api/RouteReporting/suggest/${districtId}`);
+  if (!response.ok) throw new Error('Failed to fetch optimization data');
+  return await response.json();
+};
